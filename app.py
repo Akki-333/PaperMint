@@ -33,9 +33,14 @@ pg = st.navigation(
     }
 )
 
-# Global sidebar branding
-st.sidebar.markdown(f"### {APP_ICON} {APP_NAME}")
-st.sidebar.caption(APP_TAGLINE)
+# Sidebar branding
+st.sidebar.markdown(f"""
+<div class="sidebar-brand">
+    <div class="sidebar-brand-icon">{APP_ICON}</div>
+    <div class="sidebar-brand-name">{APP_NAME}</div>
+    <div class="sidebar-brand-tagline">{APP_TAGLINE}</div>
+</div>
+""", unsafe_allow_html=True)
 st.sidebar.divider()
 
 pg.run()
