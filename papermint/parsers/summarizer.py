@@ -21,12 +21,8 @@ def _get_nlp():
             download(SPACY_MODEL)
             _nlp = spacy.load(SPACY_MODEL)
             
-        # Try to add pytextrank
-        try:
-            import pytextrank  # noqa: F401
-            _nlp.add_pipe("textrank")
-        except ImportError:
-            logger.info("pytextrank not installed, falling back to basic summarization.")
+        # We intentionally skip pytextrank here to avoid spaCy extension conflicts (E1037)
+        # and instead rely on the built-in fallback sentence scorer which works perfectly.
             
     return _nlp
 
