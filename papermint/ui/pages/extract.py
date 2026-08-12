@@ -172,24 +172,27 @@ def render() -> None:
                 # Step 2: Detect Bibliography
                 render_processing_steps(2)
                 bib_text = detect_bibliography_section(raw_text)
-                if not bib_text:
-                    st.warning("Could not reliably detect a bibliography section. Proceeding with raw text.")
-                    bib_text = raw_text
-
-                # Step 3: Split & Parse Citations
-                render_processing_steps(3)
-                raw_citations = split_citations(bib_text)
-
-                detected_style = CitationStyle.UNKNOWN
-                style_conf = 0.0
-                if raw_citations:
-                    detected_style, style_conf = detect_style(raw_citations)
 
                 parsed_citations = []
-                for raw_cit in raw_citations:
-                    parsed_cit = parse_citation(raw_cit, detected_style)
-                    if parsed_cit:
-                        parsed_citations.append(parsed_cit)
+                detected_style = CitationStyle.UNKNOWN
+                style_conf = 0.0
+
+                if bib_text:
+                    # Step 3: Split & Parse Citations
+                    render_processing_steps(3)
+                    raw_citations = split_citations(bib_text)
+
+                    if raw_citations:
+                        detected_style, style_conf = detect_style(raw_citations)
+
+                    for raw_cit in raw_citations:
+                        parsed_cit = parse_citation(raw_cit, detected_style)
+                        if parsed_cit:
+                            parsed_citations.append(parsed_cit)
+                else:
+                    # Skip parsing if no bibliography is found
+                    render_processing_steps(3)
+                    st.warning("⚠️ No structured bibliography detected in this document.")
 
                 # Generate Summary
                 summary = summarize(raw_text)
@@ -210,7 +213,10 @@ def render() -> None:
                 render_processing_steps(4)
 
             # Success message
-            st.success(f"✨ Extraction complete! Found **{result.citation_count}** citations from *{uploaded_file.name}*.")
+            if result.citation_count > 0:
+                st.success(f"✨ Extraction complete! Found **{result.citation_count}** citations from *{uploaded_file.name}*.")
+            else:
+                st.info(f"✨ Document processed: *{uploaded_file.name}*. Showing summary and raw text only.")
 
             # Metrics Row
             m1, m2, m3 = st.columns(3)
@@ -244,21 +250,24 @@ def render() -> None:
 
             st.divider()
 
-            # Tabs for detailed view
-            tab_citations, tab_summary, tab_raw = st.tabs(["📚 Citations", "📝 Summary", "📄 Raw Text"])
-
-            with tab_citations:
-                _render_citations_tab(result.citations)
-
-            with tab_summary:
-                _render_summary_tab(result)
-
-            with tab_raw:
-                _render_raw_text_tab(result.raw_text)
-
-            # Export Panel
-            st.divider()
-            render_export_panel(result.citations, key_prefix="main")
+            if result.citation_count > 0:
+                tab_citations, tab_summary, tab_raw = st.tabs(["📚 Citations", "📝 Summary", "📄 Raw Text"])
+                with tab_citations:
+                    _render_citations_tab(result.citations)
+                with tab_summary:
+                    _render_summary_tab(result)
+                with tab_raw:
+                    _render_raw_text_tab(result.raw_text)
+                    
+                # Export Panel
+                st.divider()
+                render_export_panel(result.citations, key_prefix="main")
+            else:
+                tab_summary, tab_raw = st.tabs(["📝 Summary", "📄 Raw Text"])
+                with tab_summary:
+                    _render_summary_tab(result)
+                with tab_raw:
+                    _render_raw_text_tab(result.raw_text)
 
         except Exception as e:
             st.error(f"An error occurred during processing: {e!s}")

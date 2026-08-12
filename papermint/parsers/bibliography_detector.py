@@ -42,15 +42,15 @@ def detect_bibliography_section(text: str) -> str:
        Pattern: r'^\s*(?:\d+\.?\s+)?(?:REFERENCES|Bibliography|Works Cited|...)\s*[:\.]?\s*$'
        Use re.IGNORECASE | re.MULTILINE
     2. If found, return everything after the header match
-    3. If not found, scan the last 25% of the text for bibliography-like density
+    3. If not found, scan the last 50% of the text for bibliography-like density
        (count DOIs, year patterns, author patterns)
-    4. If still not found, return the full text as fallback
+    4. If still not found, return an empty string to indicate no bibliography is present.
     
     Args:
         text: The full text of the document.
         
     Returns:
-        The extracted bibliography text.
+        The extracted bibliography text, or an empty string if none is found.
     """
     if not text.strip():
         return ""
@@ -75,5 +75,5 @@ def detect_bibliography_section(text: str) -> str:
         # We could try to find a more precise start, but for now return the last half
         return last_half_text.strip()
         
-    # 4. Fallback: return the full text
-    return text.strip()
+    # 4. Fallback: return empty string indicating no bibliography
+    return ""

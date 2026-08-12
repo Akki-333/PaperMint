@@ -55,17 +55,24 @@ def render() -> None:
                     file_results.append((file.name, [], "No text extracted"))
                     continue
 
-                bib_text = detect_bibliography_section(raw_text) or raw_text
-                raw_citations = split_citations(bib_text)
-                detected_style = CitationStyle.UNKNOWN
-                if raw_citations:
-                    detected_style, _ = detect_style(raw_citations)
-
+                bib_text = detect_bibliography_section(raw_text)
+                
                 file_citations = []
-                for raw_cit in raw_citations:
-                    parsed = parse_citation(raw_cit, detected_style)
-                    if parsed:
-                        file_citations.append(parsed)
+                detected_style = CitationStyle.UNKNOWN
+                
+                if bib_text:
+                    raw_citations = split_citations(bib_text)
+                    if raw_citations:
+                        detected_style, _ = detect_style(raw_citations)
+
+                    for raw_cit in raw_citations:
+                        parsed = parse_citation(raw_cit, detected_style)
+                        if parsed:
+                            file_citations.append(parsed)
+                else:
+                    file_results.append((file.name, [], "No bibliography detected"))
+                    progress_bar.progress((i + 1) / len(uploaded_files))
+                    continue
 
                 all_citations.extend(file_citations)
                 file_results.append((file.name, file_citations, None))

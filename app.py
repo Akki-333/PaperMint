@@ -6,7 +6,7 @@ This is the Streamlit entry point. Run with: streamlit run app.py
 import streamlit as st
 from papermint.config import APP_NAME, APP_ICON, APP_TAGLINE
 from papermint.ui.styles import inject_custom_css
-from papermint.ui.pages import extract, batch, doi_lookup, about
+from papermint.ui.pages import home, extract, batch, doi_lookup, about
 
 # Page config MUST be the first Streamlit command
 st.set_page_config(
@@ -20,7 +20,8 @@ st.set_page_config(
 inject_custom_css()
 
 # Define pages
-page_extract = st.Page(extract.render, title="Extract Citations", icon="📄", default=True, url_path="extract")
+page_home = st.Page(home.render, title="Dashboard", icon="🏠", default=True, url_path="home")
+page_extract = st.Page(extract.render, title="Document Analyzer", icon="📄", url_path="analyze")
 page_batch = st.Page(batch.render, title="Batch Processing", icon="📁", url_path="batch")
 page_doi = st.Page(doi_lookup.render, title="DOI Lookup", icon="🔍", url_path="doi-lookup")
 page_about = st.Page(about.render, title="About", icon="ℹ️", url_path="about")
@@ -28,8 +29,10 @@ page_about = st.Page(about.render, title="About", icon="ℹ️", url_path="about
 # Navigation
 pg = st.navigation(
     {
-        "Tools": [page_extract, page_batch, page_doi],
-        "Info": [page_about],
+        "Home": [page_home],
+        "Workspace": [page_extract, page_batch],
+        "Tools": [page_doi],
+        "Help": [page_about],
     }
 )
 
