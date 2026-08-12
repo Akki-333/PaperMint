@@ -142,7 +142,15 @@ def render() -> None:
 
     uploaded_file = render_file_uploader(key="extract_upload", accept_multiple=False)
 
+    force_parse = False
     if uploaded_file is not None:
+        with st.expander("⚙️ Advanced Options", expanded=False):
+            force_parse = st.checkbox(
+                "Treat entire document as a bibliography",
+                value=False,
+                help="Bypass detection heuristics and force parse the entire text. Useful for annotated bibliographies or raw reference lists."
+            )
+
         try:
             with st.spinner("Processing your document..."):
                 file_type = uploaded_file.type
@@ -171,7 +179,7 @@ def render() -> None:
 
                 # Step 2: Detect Bibliography
                 render_processing_steps(2)
-                bib_text = detect_bibliography_section(raw_text)
+                bib_text = detect_bibliography_section(raw_text, force_parse=force_parse)
 
                 parsed_citations = []
                 detected_style = CitationStyle.UNKNOWN

@@ -42,20 +42,23 @@ def _has_bibliographic_density(text: str) -> bool:
     # If more than 20% of lines are definitively citations, consider it dense
     return (indicator_count / len(lines)) > 0.2
 
-def detect_bibliography_section(text: str) -> str:
+def detect_bibliography_section(text: str, force_parse: bool = False) -> str:
     r"""Find and return the bibliography section of the text.
     
     Strategy:
-    1. Build regex from BIBLIOGRAPHY_HEADERS to find headers like 'References', 'Bibliography', etc.
+    0. If force_parse is True, bypass all checks and return the full text.
+    1. Check if the document title (first 30 lines) explicitly says it's a bibliography.
+    2. Build regex from BIBLIOGRAPHY_HEADERS to find headers like 'References', 'Bibliography', etc.
        Pattern: r'^\s*(?:\d+\.?\s+)?(?:REFERENCES|Bibliography|Works Cited|...)\s*[:\.]?\s*$'
        Use re.IGNORECASE | re.MULTILINE
-    2. If found, return everything after the header match
-    3. If not found, scan the last 50% of the text for bibliography-like density
+    3. If found, return everything after the header match
+    4. If not found, scan the last 50% of the text for bibliography-like density
        (count DOIs, year patterns, author patterns)
-    4. If still not found, return an empty string to indicate no bibliography is present.
+    5. If still not found, return an empty string to indicate no bibliography is present.
     
     Args:
         text: The full text of the document.
+        force_parse: If True, bypass heuristics and treat the entire text as a bibliography.
         
     Returns:
         The extracted bibliography text, or an empty string if none is found.
@@ -63,7 +66,17 @@ def detect_bibliography_section(text: str) -> str:
     if not text.strip():
         return ""
         
-    # 1. Search for bibliography headers
+    if force_parse:
+        return text.strip()
+        
+    # 1. Smart Title Check: Is the entire document a bibliography?
+    # Only check the very first non-empty line to avoid matching a section header.
+    non_empty_lines = [line.strip() for line in text.split('\n') if line.strip()][:1]
+    for line in non_empty_lines:
+        if re.match(r'(?i)^(?:an\s+)?(?:annotated\s+)?bibliography\b', line):
+            return text.strip()
+        
+    # 2. Search for bibliography headers
     escaped_headers = [re.escape(header) for header in BIBLIOGRAPHY_HEADERS]
     headers_pattern = "|".join(escaped_headers)
     pattern = rf'^\s*(?:\d+\.?\s+)?(?:{headers_pattern})\s*[:\.]?\s*$'

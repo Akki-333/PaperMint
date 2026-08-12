@@ -26,7 +26,15 @@ def render() -> None:
 
     uploaded_files = render_file_uploader(key="batch_upload", accept_multiple=True)
 
+    force_parse = False
     if uploaded_files:
+        with st.expander("⚙️ Advanced Options", expanded=False):
+            force_parse = st.checkbox(
+                "Treat entire document as a bibliography (apply to all files)",
+                value=False,
+                help="Bypass detection heuristics and force parse the entire text. Useful for annotated bibliographies or raw reference lists."
+            )
+            
         st.markdown(f"**📁 Processing {len(uploaded_files)} file{'s' if len(uploaded_files) != 1 else ''}...**")
 
         progress_bar = st.progress(0)
@@ -55,7 +63,7 @@ def render() -> None:
                     file_results.append((file.name, [], "No text extracted"))
                     continue
 
-                bib_text = detect_bibliography_section(raw_text)
+                bib_text = detect_bibliography_section(raw_text, force_parse=force_parse)
                 
                 file_citations = []
                 detected_style = CitationStyle.UNKNOWN
