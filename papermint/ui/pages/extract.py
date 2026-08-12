@@ -203,7 +203,11 @@ def render() -> None:
                     st.warning("⚠️ No structured bibliography detected in this document.")
 
                 # Generate Summary
-                summary = summarize(raw_text)
+                if force_parse or (bib_text and len(bib_text) > 0.8 * len(raw_text)):
+                    summary = "This document is a dedicated bibliography or reference list. The AI has extracted the citations below. No main article body was found to summarize."
+                else:
+                    body_text = raw_text.replace(bib_text, "") if bib_text else raw_text
+                    summary = summarize(body_text)
 
                 # Build Result Model
                 result = ExtractionResult(

@@ -1,6 +1,5 @@
 """Component for rendering a single citation card."""
 
-import textwrap
 import streamlit as st
 
 from papermint.models import Citation, CitationStyle
@@ -51,23 +50,21 @@ def render_citation_card(citation: Citation, index: int) -> None:
     else:
         fill_class = "conf-fill-low"
 
-    html = textwrap.dedent(f"""
-    <div class="citation-card">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <div class="citation-title">{index}. {title_str}</div>
-            <div>{badge_html}</div>
-        </div>
-        <div class="citation-authors">{authors_str}{year_str}</div>
-        <div class="citation-meta">{meta_str}</div>
-        {doi_html}
-        <div class="conf-wrap">
-            <span class="conf-label">Confidence</span>
-            <div class="conf-track">
-                <div class="conf-fill {fill_class}" style="width: {confidence_pct:.1f}%;"></div>
-            </div>
-            <span class="conf-pct">{confidence_pct:.0f}%</span>
-        </div>
-    </div>
-    """)
+    html = f"""<div class="citation-card">
+<div style="display: flex; justify-content: space-between; align-items: flex-start;">
+<div class="citation-title">{index}. {title_str}</div>
+<div>{badge_html}</div>
+</div>
+<div class="citation-authors">{authors_str}{year_str}</div>
+<div class="citation-meta">{meta_str}</div>
+{doi_html}
+<div class="conf-wrap">
+<span class="conf-label">Confidence</span>
+<div class="conf-track">
+<div class="conf-fill {fill_class}" style="width: {confidence_pct:.1f}%;"></div>
+</div>
+<span class="conf-pct">{confidence_pct:.0f}%</span>
+</div>
+</div>"""
 
     st.markdown(html, unsafe_allow_html=True)
