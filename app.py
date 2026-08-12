@@ -12,9 +12,17 @@ import re
 import spacy
 
 # Try to import pytesseract, but don't fail if it's not available
+# also verify that the underlying tesseract binary is present
 try:
     import pytesseract
-    TESSERACT_AVAILABLE = True
+    try:
+        # will raise if the executable cannot be found or run
+        pytesseract.get_tesseract_version()
+        TESSERACT_AVAILABLE = True
+    except Exception:
+        TESSERACT_AVAILABLE = False
+        st.warning("pytesseract is installed but the tesseract binary could not be found. "
+                   "OCR on images will be disabled.")
 except ImportError:
     TESSERACT_AVAILABLE = False
     st.warning("Tesseract OCR is not available. Image text extraction may not work.")
