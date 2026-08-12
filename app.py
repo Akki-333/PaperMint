@@ -1,5 +1,4 @@
 import streamlit as st
-import pytesseract
 from PIL import Image
 import fitz  # PyMuPDF for PDF text extraction
 import io
@@ -11,6 +10,14 @@ from pptx.util import Inches
 import pandas as pd
 import re
 import spacy
+
+# Try to import pytesseract, but don't fail if it's not available
+try:
+    import pytesseract
+    TESSERACT_AVAILABLE = True
+except ImportError:
+    TESSERACT_AVAILABLE = False
+    st.warning("Tesseract OCR is not available. Image text extraction may not work.")
 
 # Initialize spaCy model
 nlp = spacy.load("en_core_web_sm")
@@ -95,6 +102,9 @@ def extract_title_from_nlp(text):
 # Function to extract text from an image
 def extract_text_from_image(image_bytes):
     try:
+        if not TESSERACT_AVAILABLE:
+            st.error("Tesseract OCR is not installed. Please use PDF files instead or upload documents with selectable text.")
+            return ""
         image = Image.open(io.BytesIO(image_bytes))
         text = pytesseract.image_to_string(image)
         return text
