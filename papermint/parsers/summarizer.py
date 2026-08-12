@@ -80,24 +80,17 @@ def summarize(text: str, num_sentences: int = DEFAULT_SUMMARY_SENTENCES) -> str:
         logger.warning("Text too long for summarization, truncating.")
         text = text[:100000]
         
-    doc = nlp(text)
-    
+    try:
+        doc = nlp(text)
+    except Exception as e:
+        logger.warning(f"spaCy summarization failed: {e}")
+        # Simplest possible fallback if spaCy itself fails completely
+        return " ".join(text.split('.')[:num_sentences]) + "."
+        
     # Check if text is shorter than requested summary
     sentences = list(doc.sents)
     if len(sentences) <= num_sentences:
         return text.strip()
-        
-    # Check if textrank is available
-    if doc.has_annotation("EXT"):
-        # Not a perfect check, but if pytextrank is in pipeline, doc._.textrank will be available
-        try:
-            summary_sentences = []
-            # pytextrank specific logic
-            for sent in doc._.textrank.summary(limit_sentences=num_sentences):
-                summary_sentences.append(sent.text.strip())
-            return " ".join(summary_sentences)
-        except AttributeError:
-            pass
             
     # Fallback to basic summarization
     return _basic_summarize(doc, num_sentences)

@@ -76,14 +76,24 @@ def _extract_authors_nlp(text: str) -> list[Author]:
     """Extract authors using spaCy PERSON entities."""
     authors = []
     nlp = _get_nlp()
-    doc = nlp(text)
-    for ent in doc.ents:
-        if ent.label_ == "PERSON":
-            words = ent.text.split()
-            if len(words) > 1:
-                authors.append(Author(given=" ".join(words[:-1]), family=words[-1]))
-            else:
-                authors.append(Author(given="", family=ent.text))
+    try:
+        doc = nlp(text)
+        for ent in doc.ents:
+            if ent.label_ == "PERSON":
+                words = ent.text.split()
+                if len(words) > 1:
+                    authors.append(Author(given=" ".join(words[:-1]), family=words[-1]))
+                else:
+                    authors.append(Author(given="", family=ent.text))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"spaCy author extraction failed: {e}")
+        # Simple fallback
+        parts = text.split(',')
+        if parts:
+            first_part = parts[0].strip()
+            authors.append(Author(given="", family=first_part[:50]))
+            
     return authors
 
 def _extract_title(text: str, style: CitationStyle) -> str:
