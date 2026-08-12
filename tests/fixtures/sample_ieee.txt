@@ -1,0 +1,5 @@
+[1] J. A. Smith and R. B. Doe, "Machine learning in citation parsing," Journal of Bibliometrics, vol. 15, no. 2, pp. 103-115, 2020.
+[2] L. Johnson, "The future of AI," Tech Press, 2019.
+[3] C. D. Williams, E. Brown, and F. Davis, "Neural networks for text extraction," IEEE Transactions on Neural Networks, vol. 32, no. 4, pp. 10-25, 2021.
+[4] M. Garcia and K. Lee, "Advanced NLP techniques," Journal of Artificial Intelligence, vol. 45, no. 1, pp. 50-65, 2018.
+[5] P. Taylor, "Comprehensive Guide to Data Mining," Springer, 2022.
