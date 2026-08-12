@@ -114,6 +114,11 @@ def _extract_title(text: str, style: CitationStyle) -> str:
                 return parts[0].strip()
                 
     # Fallback heuristic
+    # Try to find a sequence of ALL CAPS words (common in older bibliographies)
+    caps_match = re.search(r'\b[A-Z][A-Z\s\-\':]{10,}\b', text)
+    if caps_match:
+        return caps_match.group(0).strip()
+        
     return ""
 
 def _detect_entry_type(text: str) -> EntryType:
