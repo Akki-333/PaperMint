@@ -1,0 +1,15 @@
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.git
+.gitignore
+.DS_Store
+assets
+.streamlit/secrets.toml
+node_modules
+.pytest_cache
+*.egg-info
+dist/
+build/

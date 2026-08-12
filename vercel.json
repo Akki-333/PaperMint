@@ -6,7 +6,8 @@
       "use": "@vercel/python",
       "config": {
         "maxLambdaSize": "3008mb",
-        "runtime": "python3.11"
+        "runtime": "python3.11",
+        "excludeFiles": "**/*.pyc, **/__pycache__/**"
       }
     }
   ],
@@ -17,6 +18,8 @@
     }
   ],
   "env": {
-    "PYTHONUNBUFFERED": "1"
-  }
+    "PYTHONUNBUFFERED": "1",
+    "PYTHONDONTWRITEBYTECODE": "1"
+  },
+  "buildCommand": "pip install --no-cache-dir -r requirements.txt && python -m spacy download en_core_web_sm"
 }
