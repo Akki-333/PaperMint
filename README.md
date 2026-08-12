@@ -17,7 +17,7 @@ A powerful Streamlit-based application that extracts and organizes bibliography 
 - **Backend**: Python 3.8+
 - **NLP**: spaCy
 - **Document Processing**: PyMuPDF, python-docx, python-pptx, Pillow
-- **Data Analysis**: Pandas (which pulls in NumPy automatically)
+- **Data Analysis**: Pandas (which pulls in NumPy and setuptools automatically)
 - **OCR**: Tesseract
 
 ## Installation
