@@ -1,7 +1,9 @@
 """About page for the Streamlit UI."""
 
 import streamlit as st
-from papermint.config import APP_NAME, APP_VERSION, APP_DESCRIPTION
+
+from papermint.config import APP_DESCRIPTION, APP_VERSION
+
 
 def render() -> None:
     """Render the about page."""

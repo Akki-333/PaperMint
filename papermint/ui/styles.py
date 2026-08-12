@@ -2,6 +2,7 @@
 
 import streamlit as st
 
+
 def inject_custom_css() -> None:
     """Inject custom CSS into the Streamlit app using st.markdown."""
     css = """

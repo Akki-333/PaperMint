@@ -2,7 +2,9 @@
 
 import io
 import logging
+
 import docx
+
 from .base import BaseExtractor
 
 logger = logging.getLogger(__name__)

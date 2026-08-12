@@ -1,12 +1,13 @@
 """Docx exporter module for PaperMint."""
 
 import io
-import docx
-from docx.shared import Pt, Inches, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-from papermint.models import Citation
+import docx
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Inches
+
 from papermint.config import APP_NAME
+from papermint.models import Citation
 
 
 def export_docx(citations: list[Citation], title: str = "Extracted References") -> io.BytesIO:
@@ -59,8 +60,6 @@ def export_docx(citations: list[Citation], title: str = "Extracted References") 
         if citation.journal:
             journal_run = p.add_run(f"{citation.journal}")
             journal_run.italic = True
-            
-            vol_issue = []
             if citation.volume:
                 vol_issue_str = f", {citation.volume}"
                 if citation.issue:

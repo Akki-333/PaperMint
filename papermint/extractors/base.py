@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 
+
 class BaseExtractor(ABC):
     """Abstract base class for all file extractors."""
     
@@ -15,7 +16,6 @@ class BaseExtractor(ABC):
         Returns:
             The extracted text as a string.
         """
-        pass
         
     @abstractmethod
     def supports(self, mime_type: str) -> bool:
@@ -27,4 +27,3 @@ class BaseExtractor(ABC):
         Returns:
             True if the extractor supports the MIME type, False otherwise.
         """
-        pass

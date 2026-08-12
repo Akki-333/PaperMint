@@ -2,7 +2,9 @@
 
 import io
 import logging
-from PIL import Image, ImageOps, ImageEnhance
+
+from PIL import Image, ImageEnhance, ImageOps
+
 from .base import BaseExtractor
 
 logger = logging.getLogger(__name__)

@@ -1,8 +1,8 @@
 """CSV and Excel exporter module for PaperMint."""
 
 import io
+
 import pandas as pd
-from typing import Optional
 
 from papermint.models import Citation
 

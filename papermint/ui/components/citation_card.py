@@ -1,7 +1,9 @@
 """Component for rendering a single citation card."""
 
 import streamlit as st
+
 from papermint.models import Citation, CitationStyle
+
 
 def render_citation_card(citation: Citation, index: int) -> None:
     """Render a single citation as a styled card in Streamlit.

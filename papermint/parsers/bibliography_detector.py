@@ -1,7 +1,9 @@
 """Module for detecting bibliography sections in extracted text."""
 
 import re
+
 from papermint.config import BIBLIOGRAPHY_HEADERS
+
 
 def _has_bibliographic_density(text: str) -> bool:
     """Check if the text has high bibliographic density.

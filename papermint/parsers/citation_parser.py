@@ -1,9 +1,11 @@
 """Module for parsing individual citation strings into Citation objects."""
 
 import re
+
 import spacy
-from papermint.models import Citation, Author, CitationStyle, EntryType
+
 from papermint.config import SPACY_MODEL
+from papermint.models import Author, Citation, CitationStyle, EntryType
 
 # Load spaCy model at module level (lazy singleton)
 _nlp = None
@@ -14,8 +16,8 @@ def _get_nlp():
             _nlp = spacy.load(SPACY_MODEL)
         except OSError:
             # Fallback if model not downloaded
-            import spacy.cli
-            spacy.cli.download(SPACY_MODEL)
+            from spacy.cli import download
+            download(SPACY_MODEL)
             _nlp = spacy.load(SPACY_MODEL)
     return _nlp
 

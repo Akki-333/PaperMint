@@ -2,7 +2,9 @@
 
 import io
 import logging
+
 from pptx import Presentation
+
 from .base import BaseExtractor
 
 logger = logging.getLogger(__name__)

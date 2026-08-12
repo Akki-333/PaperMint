@@ -1,7 +1,9 @@
 """PDF extractor module for PaperMint."""
 
 import logging
+
 import pymupdf  # PyMuPDF
+
 from .base import BaseExtractor
 
 logger = logging.getLogger(__name__)

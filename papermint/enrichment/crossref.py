@@ -1,15 +1,14 @@
 """CrossRef API enrichment module for citation metadata."""
 
 import re
-from typing import Optional
 
 from habanero import Crossref
 
-from papermint.models import Citation, Author, EntryType
 from papermint.config import CROSSREF_MAILTO
+from papermint.models import Author, Citation, EntryType
 
 
-def lookup_doi(doi: str) -> Optional[Citation]:
+def lookup_doi(doi: str) -> Citation | None:
     """Look up citation metadata from CrossRef by DOI.
 
     Args:
@@ -71,7 +70,7 @@ def lookup_doi(doi: str) -> Optional[Citation]:
             confidence=1.0,
             entry_type=EntryType.ARTICLE
         )
-    except Exception as e:
+    except Exception:
         return None
 
 

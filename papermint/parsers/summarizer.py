@@ -2,8 +2,10 @@
 
 import logging
 from collections import Counter
+
 import spacy
-from papermint.config import SPACY_MODEL, DEFAULT_SUMMARY_SENTENCES
+
+from papermint.config import DEFAULT_SUMMARY_SENTENCES, SPACY_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -15,13 +17,13 @@ def _get_nlp():
         try:
             _nlp = spacy.load(SPACY_MODEL)
         except OSError:
-            import spacy.cli
-            spacy.cli.download(SPACY_MODEL)
+            from spacy.cli import download
+            download(SPACY_MODEL)
             _nlp = spacy.load(SPACY_MODEL)
             
         # Try to add pytextrank
         try:
-            import pytextrank
+            import pytextrank  # noqa: F401
             _nlp.add_pipe("textrank")
         except ImportError:
             logger.info("pytextrank not installed, falling back to basic summarization.")

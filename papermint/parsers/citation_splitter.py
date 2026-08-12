@@ -2,6 +2,7 @@
 
 import re
 
+
 def _split_by_numbered_prefixes(text: str) -> list[str]:
     """Split citations by numbered prefixes (e.g., [1], 1., (1))."""
     # Pattern for [1], 1., (1) at the beginning of a line

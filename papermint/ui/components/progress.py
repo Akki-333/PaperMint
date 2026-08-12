@@ -2,6 +2,7 @@
 
 import streamlit as st
 
+
 def render_processing_steps(current_step: int, total_steps: int = 4) -> None:
     """Show processing pipeline step indicators.
     

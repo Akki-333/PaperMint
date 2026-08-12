@@ -2,15 +2,15 @@
 
 import streamlit as st
 
-from papermint.extractors import PdfExtractor, ImageExtractor, DocxExtractor, PptxExtractor
+from papermint.config import IMAGE_MIME_TYPES, PDF_MIME_TYPE
+from papermint.extractors import DocxExtractor, ImageExtractor, PdfExtractor, PptxExtractor
 from papermint.parsers.bibliography_detector import detect_bibliography_section
+from papermint.parsers.citation_parser import parse_citation
 from papermint.parsers.citation_splitter import split_citations
 from papermint.parsers.style_detector import detect_style
-from papermint.parsers.citation_parser import parse_citation
-from papermint.config import IMAGE_MIME_TYPES, PDF_MIME_TYPE
-
-from papermint.ui.components.file_uploader import render_file_uploader
 from papermint.ui.components.export_panel import render_export_panel
+from papermint.ui.components.file_uploader import render_file_uploader
+
 
 def render() -> None:
     """Render the batch processing page."""
@@ -68,7 +68,7 @@ def render() -> None:
                         st.write(f"{j}. {c.title or 'Unknown'} - {c.author_string}")
                         
             except Exception as e:
-                st.error(f"Error processing {file.name}: {str(e)}")
+                st.error(f"Error processing {file.name}: {e!s}")
             
             # Update progress
             progress_bar.progress((i + 1) / len(uploaded_files))

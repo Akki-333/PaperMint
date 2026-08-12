@@ -1,14 +1,15 @@
 """PDF exporter module for PaperMint."""
 
 import io
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
-from papermint.models import Citation
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import Paragraph, SimpleDocTemplate
+
 from papermint.config import APP_NAME
+from papermint.models import Citation
 
 
 def export_pdf(citations: list[Citation], title: str = "Extracted References") -> io.BytesIO:

@@ -1,7 +1,9 @@
 """Module for detecting citation styles."""
 
 import re
+
 from papermint.models import CitationStyle
+
 
 def detect_style(citations: list[str]) -> tuple[CitationStyle, float]:
     """Detect citation style from sample citations. Returns (style, confidence).

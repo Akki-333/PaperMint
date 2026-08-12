@@ -6,6 +6,7 @@ from papermint.enrichment.crossref import lookup_doi
 from papermint.ui.components.citation_card import render_citation_card
 from papermint.ui.components.export_panel import render_export_panel
 
+
 def render() -> None:
     """Render the DOI lookup page."""
     st.title("🔍 DOI Lookup")
@@ -53,4 +54,4 @@ def render() -> None:
                     st.error("No metadata found for this DOI. Please check if the DOI is correct.")
                     
             except Exception as e:
-                st.error(f"An error occurred during DOI lookup: {str(e)}")
+                st.error(f"An error occurred during DOI lookup: {e!s}")

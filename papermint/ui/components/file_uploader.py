@@ -1,8 +1,11 @@
 """Component for handling file uploads."""
 
-import streamlit as st
 from typing import Any
+
+import streamlit as st
+
 from papermint.config import ACCEPTED_FILE_TYPES, MAX_FILE_SIZE_MB
+
 
 def render_file_uploader(key: str = "file_upload", accept_multiple: bool = False) -> Any:
     """Render a file uploader with supported format info.

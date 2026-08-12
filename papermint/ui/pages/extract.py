@@ -1,21 +1,21 @@
 """Main extraction page for the Streamlit UI."""
 
-import streamlit as st
-import time
 
-from papermint.extractors import PdfExtractor, ImageExtractor, DocxExtractor, PptxExtractor
-from papermint.parsers.bibliography_detector import detect_bibliography_section
-from papermint.parsers.citation_splitter import split_citations
-from papermint.parsers.style_detector import detect_style
-from papermint.parsers.citation_parser import parse_citation
-from papermint.parsers.summarizer import summarize
-from papermint.models import ExtractionResult, CitationStyle
+import streamlit as st
 
 from papermint.config import IMAGE_MIME_TYPES, PDF_MIME_TYPE
+from papermint.extractors import DocxExtractor, ImageExtractor, PdfExtractor, PptxExtractor
+from papermint.models import CitationStyle, ExtractionResult
+from papermint.parsers.bibliography_detector import detect_bibliography_section
+from papermint.parsers.citation_parser import parse_citation
+from papermint.parsers.citation_splitter import split_citations
+from papermint.parsers.style_detector import detect_style
+from papermint.parsers.summarizer import summarize
 from papermint.ui.components.citation_card import render_citation_card
-from papermint.ui.components.file_uploader import render_file_uploader
 from papermint.ui.components.export_panel import render_export_panel
+from papermint.ui.components.file_uploader import render_file_uploader
 from papermint.ui.components.progress import render_processing_steps
+
 
 def render() -> None:
     """Render the citation extraction page."""
@@ -144,4 +144,4 @@ def render() -> None:
             render_export_panel(result.citations, key_prefix="main")
             
         except Exception as e:
-            st.error(f"An error occurred during processing: {str(e)}")
+            st.error(f"An error occurred during processing: {e!s}")
