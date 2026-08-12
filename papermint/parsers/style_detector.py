@@ -35,22 +35,22 @@ def detect_style(citations: list[str]) -> tuple[CitationStyle, float]:
             scores[CitationStyle.APA] += 0.5
             
         # MLA signals
-        # Full first names, vol. X, no. Y, pp. X-Y, title in quotes
-        if re.search(r'vol\.\s*\d+', cit, re.IGNORECASE) or re.search(r'no\.\s*\d+', cit, re.IGNORECASE):
-            scores[CitationStyle.MLA] += 1.0
-        if re.search(r'pp\.\s*\d+', cit, re.IGNORECASE):
-            scores[CitationStyle.MLA] += 0.5
+        # Full first names, title in quotes
         if re.search(r'"[^"]+"', cit) or re.search(r'“[^”]+”', cit):
             scores[CitationStyle.MLA] += 0.5
             
         # IEEE signals
-        # [N] bracket prefix, initials-first, doi: prefix
-        if re.search(r'^\[\d+\]', cit.strip()):
-            scores[CitationStyle.IEEE] += 1.0
+        # [N] bracket prefix, initials-first, doi: prefix, vol., pp.
+        if re.search(r'^\s*\[\d+\]', cit):
+            scores[CitationStyle.IEEE] += 5.0
         if re.search(r'[A-Z]\.\s+[A-Z][a-z]+', cit):
             scores[CitationStyle.IEEE] += 0.5
         if re.search(r'doi:', cit, re.IGNORECASE):
             scores[CitationStyle.IEEE] += 0.5
+        if re.search(r'vol\.\s*\d+', cit, re.IGNORECASE) or re.search(r'pp\.\s*\d+', cit, re.IGNORECASE):
+            # IEEE uses vol and pp heavily
+            scores[CitationStyle.IEEE] += 0.5
+            scores[CitationStyle.MLA] += 0.5  # Also MLA
             
         # Chicago signals
         # Volume(Issue): Pages format without vol./no./pp. labels

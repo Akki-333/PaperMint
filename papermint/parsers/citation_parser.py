@@ -44,23 +44,32 @@ def _extract_year(text: str) -> str:
 def _extract_authors_apa(text: str) -> list[Author]:
     """Parse APA style authors: Smith, J. A., & Doe, R. B."""
     authors = []
-    # Simplified extraction logic
-    parts = re.split(r',\s*&?\s*|(?:\s+&?\s+)', text)
-    for part in parts:
-        if ',' in part:
-            last, first = part.split(',', 1)
-            authors.append(Author(given=first.strip(), family=last.strip()))
+    author_str = text.split(' (')[0] if ' (' in text else text
+    matches = re.finditer(r'([A-Z][a-zA-Z\-]+),\s+([A-Z\.\s\-]+)', author_str)
+    for m in matches:
+        authors.append(Author(family=m.group(1).strip(), given=m.group(2).strip().strip('&, ')))
     return authors
 
 def _extract_authors_ieee(text: str) -> list[Author]:
     """Parse IEEE style authors: J. A. Smith and R. B. Doe."""
     authors = []
-    # Simplified extraction logic
-    parts = re.split(r',\s*|\s+and\s+', text)
+    quote_idx = text.find('"')
+    if quote_idx == -1:
+        quote_idx = text.find('“')
+    
+    author_str = text[:quote_idx] if quote_idx != -1 else text.split(',')[0]
+    author_str = re.sub(r'^\[\d+\]\s*', '', author_str).strip(', ')
+    
+    parts = re.split(r',\s*and\s+|\s+and\s+|,\s*', author_str)
     for part in parts:
-        words = part.strip().split()
+        part = part.strip()
+        if not part:
+            continue
+        words = part.split()
         if len(words) > 1:
             authors.append(Author(given=" ".join(words[:-1]), family=words[-1]))
+        else:
+            authors.append(Author(given="", family=words[0]))
     return authors
 
 def _extract_authors_nlp(text: str) -> list[Author]:
@@ -82,7 +91,7 @@ def _extract_title(text: str, style: CitationStyle) -> str:
     if style in (CitationStyle.MLA, CitationStyle.IEEE):
         match = re.search(r'"([^"]+)"', text) or re.search(r'“([^”]+)”', text)
         if match:
-            return match.group(1).strip()
+            return match.group(1).strip().rstrip(',')
             
     if style == CitationStyle.APA:
         # Title is usually after the year

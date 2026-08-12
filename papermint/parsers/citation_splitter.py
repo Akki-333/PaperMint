@@ -6,10 +6,17 @@ import re
 def _split_by_numbered_prefixes(text: str) -> list[str]:
     """Split citations by numbered prefixes (e.g., [1], 1., (1))."""
     # Pattern for [1], 1., (1) at the beginning of a line
-    pattern = r'(?m)^\s*(?:\[\d+\]|\(\d+\)|\d+\.)\s+'
+    # Capture it so we can re-attach it
+    pattern = r'(?m)(^\s*(?:\[\d+\]|\(\d+\)|\d+\.)\s+)'
     parts = re.split(pattern, text)
-    # Filter out empty strings
-    return [p.strip() for p in parts if p.strip()]
+    
+    citations = []
+    for i in range(1, len(parts), 2):
+        prefix = parts[i]
+        cit_text = parts[i+1] if i+1 < len(parts) else ""
+        citations.append((prefix + cit_text).strip())
+        
+    return [c for c in citations if c]
 
 def _split_by_blank_lines(text: str) -> list[str]:
     """Split citations by blank lines."""

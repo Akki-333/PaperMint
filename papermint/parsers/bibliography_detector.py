@@ -66,14 +66,14 @@ def detect_bibliography_section(text: str) -> str:
     if match:
         return text[match.end():].strip()
         
-    # 3. If not found, check the last 25% of the text
+    # 3. If not found, check the last 50% of the text
     lines = text.split('\n')
-    last_quarter_idx = int(len(lines) * 0.75)
-    last_quarter_text = "\n".join(lines[last_quarter_idx:])
+    last_half_idx = int(len(lines) * 0.50)
+    last_half_text = "\n".join(lines[last_half_idx:])
     
-    if _has_bibliographic_density(last_quarter_text):
-        # We could try to find a more precise start, but for now return the last quarter
-        return last_quarter_text.strip()
+    if _has_bibliographic_density(last_half_text):
+        # We could try to find a more precise start, but for now return the last half
+        return last_half_text.strip()
         
     # 4. Fallback: return the full text
     return text.strip()
