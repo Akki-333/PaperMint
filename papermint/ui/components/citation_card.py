@@ -1,5 +1,6 @@
 """Component for rendering a single citation card."""
 
+import textwrap
 import streamlit as st
 
 from papermint.models import Citation, CitationStyle
@@ -50,7 +51,7 @@ def render_citation_card(citation: Citation, index: int) -> None:
     else:
         fill_class = "conf-fill-low"
 
-    html = f"""
+    html = textwrap.dedent(f"""
     <div class="citation-card">
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div class="citation-title">{index}. {title_str}</div>
@@ -67,6 +68,6 @@ def render_citation_card(citation: Citation, index: int) -> None:
             <span class="conf-pct">{confidence_pct:.0f}%</span>
         </div>
     </div>
-    """
+    """)
 
     st.markdown(html, unsafe_allow_html=True)

@@ -25,14 +25,22 @@ def _has_bibliographic_density(text: str) -> bool:
     doi_pattern = re.compile(r'10\.\d{4,9}/[^\s]+')
     year_pattern = re.compile(r'\b(19|20)\d{2}\b')
     author_pattern = re.compile(r'[A-Z][a-z]+,?\s+[A-Z]\.')
+    bracket_pattern = re.compile(r'^\[\d+\]')
     
     indicator_count = 0
     for line in lines:
-        if doi_pattern.search(line) or year_pattern.search(line) or author_pattern.search(line):
+        has_doi = bool(doi_pattern.search(line))
+        has_bracket = bool(bracket_pattern.search(line))
+        has_year = bool(year_pattern.search(line))
+        has_author = bool(author_pattern.search(line))
+        
+        # A line is highly likely to be a citation if it has a DOI, starts with a bracket [1],
+        # or has BOTH a year and an author pattern. Just a year is too common in normal text.
+        if has_doi or has_bracket or (has_year and has_author):
             indicator_count += 1
             
-    # If more than 30% of lines have indicators, consider it dense
-    return (indicator_count / len(lines)) > 0.3
+    # If more than 20% of lines are definitively citations, consider it dense
+    return (indicator_count / len(lines)) > 0.2
 
 def detect_bibliography_section(text: str) -> str:
     r"""Find and return the bibliography section of the text.
