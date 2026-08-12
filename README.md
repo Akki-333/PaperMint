@@ -15,11 +15,10 @@ A powerful Streamlit-based application that extracts and organizes bibliography 
 
 - **Frontend**: Streamlit
 - **Backend**: Python 3.8+
-- **NLP**: spaCy, Transformers
+- **NLP**: spaCy
 - **Document Processing**: PyMuPDF, python-docx, python-pptx, Pillow
 - **Data Analysis**: Pandas
 - **OCR**: Tesseract
-- **ML**: TensorFlow
 
 ## Installation
 
@@ -88,37 +87,15 @@ Bibliography_extraction/
 
 ## Deployment
 
-### Deploy to Vercel
-
-1. **Configure `vercel.json`**
-   ```bash
-   # Already configured in the project
-   ```
-
-2. **Deploy**
-   ```bash
-   npm install -g vercel
-   vercel
-   ```
-
-3. **Follow the prompts** to link your GitHub account and deploy
-
-### Deploy to Streamlit Cloud
+### Deploy to Streamlit Cloud (recommended)
 
 1. **Push to GitHub** (see below)
 2. Go to [share.streamlit.io](https://share.streamlit.io)
 3. Connect your GitHub account
 4. Select your repository and `app.py`
-5. Click Deploy
+5. Click **Deploy**
 
-### Deploy to Heroku
-
-```bash
-# Install Heroku CLI
-heroku login
-heroku create your-app-name
-git push heroku main
-```
+> The previous Vercel and Heroku instructions have been removed: this project is now optimized for Streamlit Cloud, which handles Python apps and system packages more gracefully.
 
 ## GitHub Setup
 
