@@ -1,7 +1,21 @@
 {
-  "buildCommand": "pip install -r requirements.txt && python -m spacy download en_core_web_sm",
-  "outputDirectory": ".",
-  "framework": "streamlit",
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "3008mb",
+        "runtime": "python3.11"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "api/index.py"
+    }
+  ],
   "env": {
     "PYTHONUNBUFFERED": "1"
   }
