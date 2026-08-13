@@ -1,6 +1,7 @@
 """Module for summarizing extracted text."""
 
 import logging
+import re
 from collections import Counter
 
 import spacy
@@ -26,14 +27,52 @@ def _get_nlp():
             
     return _nlp
 
+
+def _is_reference_line(text: str) -> bool:
+    """Check if a line looks like a bibliographic reference rather than prose."""
+    text = text.strip()
+    if not text:
+        return True
+    # Numbered reference
+    if re.match(r'^\s*\[?\d+\]?\.?\s', text):
+        return True
+    # DOI
+    if re.search(r'10\.\d{4,9}/[^\s]+', text):
+        return True
+    # Multiple "Author, F." patterns on a single line
+    if len(re.findall(r'[A-Z][a-z]+,\s+[A-Z]\.', text)) >= 2:
+        return True
+    return False
+
+
+def _clean_for_summary(text: str) -> str:
+    """Remove reference lines and noise from text before summarization."""
+    lines = text.split('\n')
+    clean_lines = []
+    for line in lines:
+        if not _is_reference_line(line):
+            stripped = line.strip()
+            # Skip very short lines (headers, page numbers)
+            if len(stripped) > 20:
+                clean_lines.append(stripped)
+    return ' '.join(clean_lines)
+
+
 def _basic_summarize(doc: spacy.tokens.Doc, num_sentences: int) -> str:
-    """Basic TF-IDF-like summarization using spaCy."""
+    """Improved extractive summarization using spaCy.
+    
+    Uses word frequency scoring with position awareness:
+    - Sentences near the beginning and end get a boost.
+    - Very short sentences are penalized.
+    - Only content words (no stops, no punctuation) contribute to score.
+    """
     sentences = list(doc.sents)
     if len(sentences) <= num_sentences:
         return " ".join([s.text.strip() for s in sentences])
         
-    # Calculate word frequencies
-    words = [token.text.lower() for token in doc if not token.is_stop and not token.is_punct]
+    # Calculate word frequencies (content words only)
+    words = [token.text.lower() for token in doc 
+             if not token.is_stop and not token.is_punct and len(token.text) > 2]
     word_freq = Counter(words)
     
     # Normalize frequencies
@@ -43,24 +82,46 @@ def _basic_summarize(doc: spacy.tokens.Doc, num_sentences: int) -> str:
         
     # Score sentences
     sent_scores = {}
+    total_sents = len(sentences)
+    
     for i, sent in enumerate(sentences):
-        score = 0
-        for token in sent:
-            word = token.text.lower()
-            if word in word_freq:
-                score += word_freq[word]
-        # Normalize by length to avoid bias towards very long sentences
-        sent_scores[i] = score / (len(sent) + 1)
+        # Content word score
+        content_words = [t for t in sent if not t.is_stop and not t.is_punct and len(t.text) > 2]
+        if not content_words:
+            sent_scores[i] = 0.0
+            continue
+            
+        score = sum(word_freq.get(t.text.lower(), 0) for t in content_words)
+        
+        # Normalize by content word count (not total token count)
+        score = score / (len(content_words) + 1)
+        
+        # Position boost: sentences in first 20% or last 20% get a 30% boost
+        position_ratio = i / total_sents
+        if position_ratio < 0.2 or position_ratio > 0.8:
+            score *= 1.3
+            
+        # Penalize very short sentences (< 5 words) — they're usually headers
+        if len(list(sent)) < 5:
+            score *= 0.3
+            
+        # Penalize sentences that look like reference fragments
+        if _is_reference_line(sent.text):
+            score *= 0.1
+            
+        sent_scores[i] = score
         
     # Get top N sentences by score, but keep original order
     top_sent_indices = sorted(sorted(sent_scores, key=sent_scores.get, reverse=True)[:num_sentences])
     
     return " ".join([sentences[i].text.strip() for i in top_sent_indices])
 
+
 def summarize(text: str, num_sentences: int = DEFAULT_SUMMARY_SENTENCES) -> str:
     """Generate an extractive summary of the text.
     
-    Uses pytextrank if available, otherwise falls back to a simple TF-IDF-like approach.
+    Pre-cleans the text to remove reference lines and noise, then uses
+    position-aware TF-IDF scoring to select the most representative sentences.
     
     Args:
         text: The text to summarize.
@@ -71,26 +132,31 @@ def summarize(text: str, num_sentences: int = DEFAULT_SUMMARY_SENTENCES) -> str:
     """
     if not text or not text.strip():
         return ""
+    
+    # Pre-clean the text to remove reference lines
+    clean_text = _clean_for_summary(text)
+    if not clean_text.strip():
+        # If cleaning removed everything, fall back to original
+        clean_text = text
         
     nlp = _get_nlp()
     
-    # Process the text
     # Truncate text if it's too long to avoid memory issues (e.g., > 100k chars)
-    if len(text) > 100000:
+    if len(clean_text) > 100000:
         logger.warning("Text too long for summarization, truncating.")
-        text = text[:100000]
+        clean_text = clean_text[:100000]
         
     try:
-        doc = nlp(text)
+        doc = nlp(clean_text)
     except Exception as e:
         logger.warning(f"spaCy summarization failed: {e}")
         # Simplest possible fallback if spaCy itself fails completely
-        return " ".join(text.split('.')[:num_sentences]) + "."
+        sentences = [s.strip() for s in text.split('.') if len(s.strip()) > 20]
+        return ". ".join(sentences[:num_sentences]) + "." if sentences else ""
         
     # Check if text is shorter than requested summary
     sentences = list(doc.sents)
     if len(sentences) <= num_sentences:
-        return text.strip()
+        return clean_text.strip()
             
-    # Fallback to basic summarization
     return _basic_summarize(doc, num_sentences)
