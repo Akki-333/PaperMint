@@ -1,83 +1,271 @@
-"""Component for rendering a single citation card."""
+"""The citation card: the atomic unit of the PaperMint interface.
+
+A card shows what was parsed and, just as importantly, how much of it was
+parsed. Confidence is expressed three ways at three levels of detail: a
+coloured rule down the left edge that is readable at a glance, a band label in
+the header, and an explicit list of missing fields on entries that need
+attention. Nothing is ever labelled "Untitled"; an entry whose title could not
+be isolated shows its own opening text instead.
+
+Cards render as static markup by default. When ``editable`` is set the card is
+wrapped in a keyed Streamlit container so that real widgets, an inline editor
+and a BibTeX copy view, can live inside the card's chrome.
+"""
+
+from __future__ import annotations
 
 import streamlit as st
 
-from papermint.models import Citation, CitationStyle
+from papermint.exporters.bibtex_exporter import export_bibtex
+from papermint.models import Author, Citation, CitationStyle
+from papermint.parsers.citation_parser import score_citation
+from papermint.ui.html import clamp, dot_join, esc, render
+from papermint.ui.icons import icon
+from papermint.ui.theme import band_color, band_fill
 
 
-def render_citation_card(citation: Citation, index: int) -> None:
-    """Render a single citation as a styled card in Streamlit.
+def citation_preview_text(citation: Citation) -> str:
+    """Return the one-line summary used in compact listings.
 
     Args:
-        citation (Citation): The citation object to render.
-        index (int): The 1-based index of the citation in the list.
+        citation: The citation to describe.
+
+    Returns:
+        A short human-readable descriptor.
     """
-    # Format fields safely
-    if citation.title:
-        title_str = citation.title
-    else:
-        # Show a trimmed preview of the raw text instead of "Untitled"
-        raw_preview = citation.raw_text.strip().replace('\n', ' ')[:80]
-        title_str = f"{raw_preview}..." if len(citation.raw_text.strip()) > 80 else raw_preview
+    return dot_join(
+        clamp(citation.display_title, 70),
+        citation.short_author_string,
+        citation.year,
+    )
 
-    authors_str = citation.author_string if citation.author_string else ""
-    year_str = f" ({citation.year})" if citation.year else ""
 
-    # Journal metadata line
-    meta_parts = []
+def _card_markup(citation: Citation, index: int) -> str:
+    """Build the static markup for one citation.
+
+    Args:
+        citation: The citation to render.
+        index: The 1-based position shown in the gutter.
+
+    Returns:
+        The card's HTML.
+    """
+    band = citation.confidence_band
+    colour = band_color(band)
+    fill = band_fill(band)
+
+    title_class = "pm-card-title" if citation.is_parsed else "pm-card-title is-unparsed"
+    title = esc(citation.display_title)
+
+    badges: list[str] = []
+    if citation.style is not CitationStyle.UNKNOWN:
+        badges.append(f'<span class="pm-chip is-mono">{esc(citation.style.label)}</span>')
+    if citation.edited:
+        badges.append('<span class="pm-chip is-accent">Edited</span>')
+    badges.append(
+        f'<span class="pm-band"><span class="pm-band-dot"></span>'
+        f"{esc(band.label)} {citation.confidence:.0%}</span>"
+    )
+
+    byline = dot_join(esc(citation.author_string), esc(citation.year))
+    byline_html = f'<div class="pm-card-authors">{byline}</div>' if byline else ""
+
+    venue_parts: list[str] = []
     if citation.journal:
-        meta_parts.append(f"<em>{citation.journal}</em>")
-    if citation.volume:
-        meta_parts.append(f"vol. {citation.volume}")
-    if citation.issue:
-        meta_parts.append(f"no. {citation.issue}")
-    if citation.pages:
-        meta_parts.append(f"pp. {citation.pages}")
-    if citation.publisher:
-        meta_parts.append(citation.publisher)
-    meta_str = ", ".join(meta_parts)
+        venue_parts.append(f"<em>{esc(citation.journal)}</em>")
+    elif citation.booktitle:
+        venue_parts.append(f"<em>{esc(citation.booktitle)}</em>")
+    if citation.locator:
+        venue_parts.append(esc(citation.locator))
+    if citation.publisher and citation.publisher != citation.journal:
+        venue_parts.append(esc(citation.publisher))
+    venue_parts.append(esc(citation.entry_type.label))
+    meta_html = f'<div class="pm-card-meta">{" · ".join(venue_parts)}</div>'
 
-    # Style badge
-    badge_html = ""
-    if citation.style != CitationStyle.UNKNOWN:
-        style_name = citation.style.value.upper() if hasattr(citation.style, "value") else str(citation.style)
-        badge_html = f'<span class="style-badge">{style_name}</span>'
+    link_html = ""
+    if citation.doi_url:
+        label = citation.doi or citation.url
+        link_html = (
+            f'<a class="pm-card-link" href="{esc(citation.doi_url)}" '
+            'target="_blank" rel="noopener noreferrer">'
+            f"{icon('external', size=13)}{esc(clamp(label, 72))}</a>"
+        )
 
-    # DOI link
-    doi_html = ""
-    if citation.doi:
-        doi_url = f"https://doi.org/{citation.doi}" if not str(citation.doi).startswith("http") else citation.doi
-        doi_html = f'<div class="citation-doi">\ud83d\udd17 <a href="{doi_url}" target="_blank">{citation.doi}</a></div>'
+    missing_html = ""
+    if citation.needs_review and citation.missing_fields:
+        missing_html = (
+            f'<div class="pm-missing">{icon("alert", size=12)} '
+            f"Not found: {esc(', '.join(citation.missing_fields))}</div>"
+        )
 
-    # Confidence bar
-    confidence_pct = max(0.0, min(100.0, float(citation.confidence) * 100)) if citation.confidence else 0.0
-    if confidence_pct >= 60:
-        fill_class = "conf-fill-high"
-    elif confidence_pct >= 30:
-        fill_class = "conf-fill-mid"
-    else:
-        fill_class = "conf-fill-low"
+    return (
+        f'<div class="pm-card" style="--pm-band:{colour};--pm-band-fill:{fill};">'
+        f'<div class="pm-card-index">{index:02d}</div>'
+        "<div>"
+        '<div class="pm-card-head">'
+        f'<div class="{title_class}">{title}</div>'
+        f'<div class="pm-chip-row">{"".join(badges)}</div>'
+        "</div>"
+        f"{byline_html}{meta_html}{link_html}{missing_html}"
+        "</div>"
+        "</div>"
+    )
 
-    # Build HTML — NO INDENTATION to prevent Streamlit from rendering as code block
-    html = f'<div class="citation-card">'
-    html += f'<div style="display:flex;justify-content:space-between;align-items:flex-start;">'
-    html += f'<div class="citation-title">{index}. {title_str}</div>'
-    html += f'<div>{badge_html}</div>'
-    html += f'</div>'
-    if authors_str:
-        html += f'<div class="citation-authors">{authors_str}{year_str}</div>'
-    elif year_str:
-        html += f'<div class="citation-authors">{year_str.strip()}</div>'
-    if meta_str:
-        html += f'<div class="citation-meta">{meta_str}</div>'
-    html += doi_html
-    html += f'<div class="conf-wrap">'
-    html += f'<span class="conf-label">Confidence</span>'
-    html += f'<div class="conf-track">'
-    html += f'<div class="conf-fill {fill_class}" style="width:{confidence_pct:.1f}%;"></div>'
-    html += f'</div>'
-    html += f'<span class="conf-pct">{confidence_pct:.0f}%</span>'
-    html += f'</div>'
-    html += f'</div>'
 
-    st.markdown(html, unsafe_allow_html=True)
+def _parse_author_field(value: str) -> list[Author]:
+    """Convert an edited author string back into author models.
+
+    Accepts semicolon-separated names in either ``Family, Given`` or
+    ``Given Family`` order, which is how researchers actually type them.
+
+    Args:
+        value: The raw text from the editor field.
+
+    Returns:
+        The parsed authors.
+    """
+    authors: list[Author] = []
+    for chunk in value.split(";"):
+        name = chunk.strip().rstrip(",")
+        if not name:
+            continue
+        if "," in name:
+            family, _, given = name.partition(",")
+            authors.append(Author(family=family.strip(), given=given.strip()))
+        else:
+            words = name.split()
+            if len(words) == 1:
+                authors.append(Author(family=words[0]))
+            else:
+                authors.append(Author(given=" ".join(words[:-1]), family=words[-1]))
+    return authors
+
+
+def _render_editor(citation: Citation, uid: str) -> Citation | None:
+    """Render the inline field editor inside a popover.
+
+    Args:
+        citation: The citation being corrected.
+        uid: A unique suffix for the widget keys.
+
+    Returns:
+        The updated citation when the reader saves, otherwise None.
+    """
+    with st.form(key=f"pmform-{uid}", border=False):
+        title = st.text_input("Title", value=citation.title, key=f"pmt-{uid}")
+        authors = st.text_input(
+            "Authors",
+            value="; ".join(a.citation_name for a in citation.authors),
+            help=("Separate authors with a semicolon, for example: Smith, J. A.; Doe, R. B."),
+            key=f"pma-{uid}",
+        )
+        col_year, col_vol, col_pages = st.columns(3)
+        year = col_year.text_input("Year", value=citation.year, key=f"pmy-{uid}")
+        volume = col_vol.text_input("Volume", value=citation.volume, key=f"pmv-{uid}")
+        pages = col_pages.text_input("Pages", value=citation.pages, key=f"pmp-{uid}")
+        journal = st.text_input("Journal or venue", value=citation.journal, key=f"pmj-{uid}")
+        publisher = st.text_input("Publisher", value=citation.publisher, key=f"pmpub-{uid}")
+        doi = st.text_input("DOI", value=citation.doi, key=f"pmd-{uid}")
+
+        if not st.form_submit_button("Save changes", type="primary"):
+            return None
+
+    updated = citation.model_copy(
+        update={
+            "title": title.strip(),
+            "authors": _parse_author_field(authors),
+            "year": year.strip(),
+            "volume": volume.strip(),
+            "pages": pages.strip(),
+            "journal": journal.strip(),
+            "publisher": publisher.strip(),
+            "doi": doi.strip(),
+            "edited": True,
+        }
+    )
+    updated.confidence = score_citation(updated)
+    return updated
+
+
+def render_citation_card(
+    citation: Citation,
+    index: int,
+    *,
+    scope: str = "main",
+    editable: bool = False,
+    uid: str | None = None,
+) -> Citation | None:
+    """Render a single citation as a card.
+
+    Args:
+        citation: The citation object to render.
+        index: The 1-based index of the citation in the list.
+        scope: Namespace for widget keys, so several lists can coexist on one
+            page without key collisions.
+        editable: Show the inline editor and BibTeX actions.
+        uid: Stable identifier for widget keys; defaults to the index.
+
+    Returns:
+        The updated citation when the reader saved an edit, otherwise None.
+    """
+    if not editable:
+        render(_card_markup(citation, index))
+        return None
+
+    key = f"{scope}-{uid if uid is not None else index}"
+    result: Citation | None = None
+
+    with st.container(key=f"pmcard-{key}"):
+        render(_card_markup(citation, index))
+
+        actions, spacer = st.columns([3, 5])
+        with actions:
+            edit_col, cite_col = st.columns(2)
+            with edit_col.popover("Edit", use_container_width=True):
+                result = _render_editor(citation, key)
+            with cite_col.popover("BibTeX", use_container_width=True):
+                st.caption("Use the copy button in the corner of the block.")
+                st.code(export_bibtex([citation]), language="bibtex")
+        spacer.empty()
+
+    return result
+
+
+def render_citation_list(
+    citations: list[Citation],
+    *,
+    scope: str = "main",
+    editable: bool = False,
+    start_index: int = 1,
+    uids: list[str] | None = None,
+) -> tuple[int, Citation] | None:
+    """Render a list of citation cards.
+
+    Args:
+        citations: The citations to render, in display order.
+        scope: Namespace for widget keys.
+        editable: Show the inline editor on every card.
+        start_index: The number shown on the first card.
+        uids: Stable per-citation identifiers, used for widget keys. Defaults
+            to the display position.
+
+    Returns:
+        A ``(list position, updated citation)`` pair when a card was edited,
+        otherwise None.
+    """
+    edit: tuple[int, Citation] | None = None
+    for offset, citation in enumerate(citations):
+        uid = uids[offset] if uids and offset < len(uids) else str(offset)
+        updated = render_citation_card(
+            citation,
+            start_index + offset,
+            scope=scope,
+            editable=editable,
+            uid=uid,
+        )
+        if updated is not None:
+            edit = (offset, updated)
+    return edit
+
+
+__all__ = ["citation_preview_text", "render_citation_card", "render_citation_list"]
