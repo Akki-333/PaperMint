@@ -1,27 +1,30 @@
-import pytest
+from papermint.models import CitationStyle
 from papermint.parsers.bibliography_detector import detect_bibliography_section
+from papermint.parsers.citation_parser import parse_citation
 from papermint.parsers.citation_splitter import split_citations
 from papermint.parsers.style_detector import detect_style
-from papermint.parsers.citation_parser import parse_citation
-from papermint.models import CitationStyle
 
 # --- Bibliography Detector Tests ---
+
 
 def test_detect_references_header(sample_apa_text):
     full_text = "Some intro text.\n\n" + sample_apa_text
     extracted = detect_bibliography_section(full_text)
     assert "Smith, J. A." in extracted
-    assert "References" not in extracted # it skips the header
+    assert "References" not in extracted  # it skips the header
+
 
 def test_detect_bibliography_header():
     full_text = "Content.\n\nBibliography\nCitation 1\nCitation 2"
     extracted = detect_bibliography_section(full_text)
     assert extracted == "Citation 1\nCitation 2"
 
+
 def test_detect_numbered_section_header():
     full_text = "Content.\n\n7. References\nCitation 1"
     extracted = detect_bibliography_section(full_text)
     assert extracted == "Citation 1"
+
 
 def test_detect_fallback_no_header():
     text = "Line 1\nLine 2\nSmith, J. (2020). Book. 10.1234/567\nDoe, A. (2021). Article."
@@ -29,9 +32,11 @@ def test_detect_fallback_no_header():
     extracted = detect_bibliography_section(text)
     assert "Smith, J." in extracted
 
+
 def test_detect_empty_text():
     assert detect_bibliography_section("") == ""
     assert detect_bibliography_section("   ") == ""
+
 
 def test_detect_force_parse():
     text = "This is random text with no bibliography markers."
@@ -41,15 +46,18 @@ def test_detect_force_parse():
 
 # --- Citation Splitter Tests ---
 
+
 def test_split_numbered_citations(sample_ieee_text):
     citations = split_citations(sample_ieee_text)
     assert len(citations) == 3
     assert "J. A. Smith" in citations[0]
 
+
 def test_split_blank_line_separated():
     text = "Smith, J. (2020). Title One. Journal, 1(1).\n\nDoe, A. (2021). Title Two. Journal, 2(2).\n\nBrown, B. (2019). Title Three."
     citations = split_citations(text)
     assert len(citations) == 3
+
 
 def test_split_author_boundaries(sample_apa_text):
     # Strip "References\n"
@@ -58,9 +66,11 @@ def test_split_author_boundaries(sample_apa_text):
     assert len(citations) == 3
     assert "Smith, J. A." in citations[0]
 
+
 def test_split_single_citation():
     text = "Just one single citation block."
     assert split_citations(text) == [text]
+
 
 def test_split_empty_text():
     assert split_citations("") == []
@@ -68,11 +78,13 @@ def test_split_empty_text():
 
 # --- Style Detector Tests ---
 
+
 def test_detect_apa(sample_apa_text):
     citations = sample_apa_text.split("\n")[1:]
     style, conf = detect_style(citations)
     assert style == CitationStyle.APA
     assert 0 < conf <= 1.0
+
 
 def test_detect_ieee(sample_ieee_text):
     citations = split_citations(sample_ieee_text)
@@ -80,16 +92,19 @@ def test_detect_ieee(sample_ieee_text):
     assert style == CitationStyle.IEEE
     assert 0 < conf <= 1.0
 
+
 def test_detect_mla(sample_mla_text):
     citations = sample_mla_text.split("\n")
     style, conf = detect_style(citations)
     assert style == CitationStyle.MLA
     assert 0 < conf <= 1.0
 
+
 def test_detect_unknown():
     citations = ["Random string 1", "Random string 2"]
-    style, conf = detect_style(citations)
+    style, _conf = detect_style(citations)
     assert style == CitationStyle.UNKNOWN
+
 
 def test_detect_style_empty():
     style, conf = detect_style([])
@@ -99,16 +114,19 @@ def test_detect_style_empty():
 
 # --- Citation Parser Tests ---
 
+
 def test_extract_doi():
     cit = parse_citation("Text 10.1234/abc.def text")
     assert cit.doi == "10.1234/abc.def"
 
+
 def test_extract_year():
     cit = parse_citation("Author (2020). Title.")
     assert cit.year == "2020"
-    
+
     cit2 = parse_citation("Author. 1999. Title.")
     assert cit2.year == "1999"
+
 
 def test_parse_apa_citation():
     text = "Smith, J. A., & Doe, R. B. (2020). Machine learning in citation parsing. Journal of AI, 1(1), 45-67."
@@ -118,18 +136,21 @@ def test_parse_apa_citation():
     assert cit.authors[0].family == "Smith"
     assert cit.title == "Machine learning in citation parsing"
 
+
 def test_parse_ieee_citation():
-    text = "[1] J. A. Smith and R. B. Doe, \"Machine learning,\" Journal, 2020."
+    text = '[1] J. A. Smith and R. B. Doe, "Machine learning," Journal, 2020.'
     cit = parse_citation(text, CitationStyle.IEEE)
     assert len(cit.authors) == 2
     assert cit.authors[0].family == "Smith"
     assert cit.title == "Machine learning"
+
 
 def test_confidence_is_reasonable():
     """Confidence should be > 25% for citations with title, authors, year."""
     text = "Smith, J. (2020). Machine learning advances. Journal of AI, 1(1), 45-67."
     cit = parse_citation(text, CitationStyle.APA)
     assert cit.confidence >= 0.4, f"Confidence too low: {cit.confidence}"
+
 
 def test_parse_extracts_volume_pages():
     """Parser should extract volume, issue, and pages."""
@@ -138,16 +159,19 @@ def test_parse_extracts_volume_pages():
     assert cit.volume == "12"
     assert cit.pages == "45-67"
 
+
 def test_parse_extracts_publisher():
     """Parser should extract publisher names."""
     text = "Smith, J. (2020). Book Title. Cambridge University Press."
     cit = parse_citation(text, CitationStyle.APA)
     assert "University Press" in cit.publisher or "Cambridge" in cit.publisher
 
+
 def test_parse_empty():
     cit = parse_citation("")
     assert cit.confidence == 0.0
     assert cit.title == ""
+
 
 def test_title_extraction_fallback():
     """Should extract title even without standard formatting."""

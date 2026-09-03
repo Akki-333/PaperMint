@@ -1,5 +1,7 @@
 import pytest
-from papermint.models import Citation, Author, CitationStyle, EntryType
+
+from papermint.models import Author, Citation, CitationStyle, EntryType
+
 
 @pytest.fixture
 def sample_apa_text():
@@ -8,11 +10,13 @@ Smith, J. A., & Doe, R. B. (2020). Machine learning in citation parsing. Journal
 Johnson, L. (2019). The future of AI. Tech Press.
 Williams, C. D., Brown, E., & Davis, F. (2021). Neural networks for text extraction. IEEE Transactions on Neural Networks, 32(4), 10-25."""
 
+
 @pytest.fixture
 def sample_ieee_text():
     return """[1] J. A. Smith and R. B. Doe, "Machine learning in citation parsing," Journal of Bibliometrics, vol. 15, no. 2, pp. 103-115, 2020.
 [2] L. Johnson, "The future of AI," Tech Press, 2019.
 [3] C. D. Williams, E. Brown, and F. Davis, "Neural networks for text extraction," IEEE Transactions on Neural Networks, vol. 32, no. 4, pp. 10-25, 2021."""
+
 
 @pytest.fixture
 def sample_mla_text():
@@ -20,9 +24,11 @@ def sample_mla_text():
 Johnson, Laura. "The future of AI." Tech Press, 2019.
 Williams, Charles D., et al. "Neural networks for text extraction." IEEE Transactions on Neural Networks, vol. 32, no. 4, 2021, pp. 10-25."""
 
+
 @pytest.fixture
 def sample_author():
     return Author(given="John A.", family="Smith")
+
 
 @pytest.fixture
 def sample_citation(sample_author):
@@ -43,8 +49,9 @@ def sample_citation(sample_author):
         raw_text="Smith, J. A., & Doe, R. B. (2020). Machine learning in citation parsing. Journal of Bibliometrics, 15(2), 103-115.",
         style=CitationStyle.APA,
         entry_type=EntryType.ARTICLE,
-        confidence=0.9
+        confidence=0.9,
     )
+
 
 @pytest.fixture
 def sample_citations(sample_citation):
@@ -55,14 +62,14 @@ def sample_citations(sample_citation):
         publisher="Tech Press",
         entry_type=EntryType.BOOK,
         style=CitationStyle.APA,
-        confidence=0.8
+        confidence=0.8,
     )
     c3 = Citation(
         title="Neural networks for text extraction",
         authors=[
             Author(given="Charles D.", family="Williams"),
             Author(given="Emily", family="Brown"),
-            Author(given="Frank", family="Davis")
+            Author(given="Frank", family="Davis"),
         ],
         year="2021",
         journal="IEEE Transactions on Neural Networks",
@@ -70,6 +77,6 @@ def sample_citations(sample_citation):
         issue="4",
         pages="10-25",
         style=CitationStyle.APA,
-        confidence=0.85
+        confidence=0.85,
     )
     return [sample_citation, c2, c3]
