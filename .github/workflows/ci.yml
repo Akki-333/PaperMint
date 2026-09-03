@@ -7,9 +7,30 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install "ruff>=0.6.0"
+
+      - name: Check lint rules
+        run: ruff check .
+
+      - name: Check formatting
+        run: ruff format --check .
+
   test:
+    name: Test on Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
 
@@ -20,21 +41,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
 
       - name: Install Tesseract
-        run: sudo apt-get install -y tesseract-ocr
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-          python -m spacy download en_core_web_sm
 
-      - name: Lint with ruff
-        run: ruff check papermint/
-
+      # The summariser must work without spaCy. This job deliberately omits the
+      # model so the regex fallback is exercised on every run.
       - name: Run tests
-        run: pytest --cov=papermint --cov-report=xml -q
+        run: pytest --cov=papermint --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage
         if: matrix.python-version == '3.12'
@@ -42,3 +64,28 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+  test-with-nlp:
+    name: Test with spaCy installed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Tesseract
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr
+
+      - name: Install dependencies with the NLP extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,nlp]"
+          python -m spacy download en_core_web_sm
+
+      - name: Run tests
+        run: pytest
