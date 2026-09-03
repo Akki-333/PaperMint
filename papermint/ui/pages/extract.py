@@ -150,10 +150,39 @@ def _render_verdict(result: ExtractionResult, citations: list[Citation]) -> None
         citations: The current citation list, including any reader edits.
     """
     if citations:
+        set_aside = (
+            [
+                (
+                    f"{result.discarded_count} of {result.segment_count} segments were set "
+                    "aside because they carried no author, year, venue or identifier. They "
+                    "are listed under Segments set aside, and excluded from every export."
+                ),
+            ]
+            if result.discarded
+            else None
+        )
         notice(
             f"{len(citations)} references extracted from {result.source_filename}",
             f"{result.document_kind.label} · {result.detection_method.label}.",
             tone="positive",
+            details=set_aside,
+        )
+        return
+
+    if result.discarded:
+        notice(
+            "This document does not appear to contain a bibliography",
+            f"A block of {result.discarded_count} segments was located, but not one of "
+            "them carried an author, a year, a venue or an identifier. Rather than "
+            "present prose as though it were a reference list, PaperMint reported none.",
+            tone="caution",
+            details=[
+                "Every segment is listed below so you can check the decision for yourself.",
+                (
+                    "If this really is a reference list, switch on Treat the whole document "
+                    "as a bibliography under Options."
+                ),
+            ],
         )
         return
 
@@ -179,6 +208,29 @@ def _render_verdict(result: ExtractionResult, citations: list[Citation]) -> None
         "individual references.",
         tone="caution",
     )
+
+
+def _render_discarded(result: ExtractionResult) -> None:
+    """List the segments the pipeline declined to treat as citations.
+
+    The segments are shown rather than silently dropped. Rejection is a
+    judgement, and a reader who can see what was rejected can tell a genuine
+    appendix heading from a reference the parser failed to read.
+
+    Args:
+        result: The processed document.
+    """
+    if not result.discarded:
+        return
+
+    with st.expander(f"Segments set aside ({result.discarded_count})", expanded=False):
+        prose(
+            "These came from the same block as the references but carry no author, "
+            "year, venue or identifier. They are usually appendix prose, equations or "
+            "section headings that share the reference list's numbering. None of them "
+            "appears in an export."
+        )
+        source_block("\n\n".join(entry.raw_text for entry in result.discarded))
 
 
 def _render_headline_stats(result: ExtractionResult, citations: list[Citation]) -> None:
@@ -467,6 +519,7 @@ def render() -> None:
     citations: list[Citation] = st.session_state.get(_CITATIONS_KEY, [])
 
     _render_verdict(result, citations)
+    _render_discarded(result)
     st.write("")
     _render_headline_stats(result, citations)
     st.write("")
