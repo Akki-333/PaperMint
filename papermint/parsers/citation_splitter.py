@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
+from itertools import pairwise
 
 from papermint.config import SPLIT_VALIDATION_RATIO
 
@@ -32,8 +33,15 @@ _SURNAME = (
 #: A line that opens a new entry: "Smith, J.", "O'Brien, Kate", "VAN DYKE, A."
 _AUTHOR_BOUNDARY = re.compile(rf"^{_SURNAME},\s+(?:[A-Z]\.|[A-Z][a-z]+|[A-Z]\b)")
 
-#: An explicit entry index at the start of a line.
-_NUMBERED_PREFIX = re.compile(r"(?m)(^[ \t]*(?:\[\d{1,3}\]|\(\d{1,3}\)|\d{1,3}\.)\s+)")
+#: Explicit entry indices at the start of a line, in descending order of
+#: reliability. A bracketed index is almost never anything but a reference
+#: number; a bare "2." is just as likely to be an appendix subsection heading,
+#: which is why the forms are tried separately rather than as one alternation.
+_BRACKET_PREFIX = re.compile(r"(?m)^[ \t]*\[(\d{1,3})\][ \t]+")
+_PAREN_PREFIX = re.compile(r"(?m)^[ \t]*\((\d{1,3})\)[ \t]+")
+_DOT_PREFIX = re.compile(r"(?m)^[ \t]*(\d{1,3})\.[ \t]+")
+
+_PREFIX_FORMS = (_BRACKET_PREFIX, _PAREN_PREFIX, _DOT_PREFIX)
 
 #: A blank line, used as a paragraph separator.
 _BLANK_LINE = re.compile(r"\n\s*\n")
@@ -117,24 +125,78 @@ def _merge_continuations(segments: list[str]) -> list[str]:
     return merged
 
 
+def _looks_like_entry_numbering(numbers: list[int]) -> bool:
+    """Judge whether a run of prefix numbers indexes a reference list.
+
+    A reference list is numbered once, straight through: 1, 2, 3, ... 64. An
+    appendix numbers its subsections and then *restarts* under the next
+    appendix: 1, 2, 1, 2, 3. Requiring the run to increase strictly, to begin
+    near one, and not to be wildly sparser than its own length is what stops
+    appendix headings being segmented as citations.
+
+    Args:
+        numbers: The integers captured from each prefix, in document order.
+
+    Returns:
+        True when the run looks like reference-list numbering.
+    """
+    if len(numbers) < 2:
+        return False
+    if numbers[0] > 3:
+        return False
+    if any(later <= earlier for earlier, later in pairwise(numbers)):
+        return False
+    return numbers[-1] - numbers[0] <= 3 * len(numbers)
+
+
+def _split_on_prefix(text: str, pattern: re.Pattern[str]) -> list[str]:
+    """Cut the block at every line carrying the given index form.
+
+    Anything before the first index is discarded: in a document whose appendix
+    precedes an unheaded reference list, that leading span is the appendix, not
+    a reference.
+
+    Args:
+        text: The bibliography block.
+        pattern: One of the entry-index forms.
+
+    Returns:
+        The segmented entries, prefix included.
+    """
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return []
+
+    segments: list[str] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        segments.append(text[match.start() : end].strip())
+    return [segment for segment in segments if segment]
+
+
 def _split_by_numbered_prefixes(text: str) -> list[str]:
-    """Split citations by numbered prefixes such as ``[1]``, ``1.`` or ``(1)``.
+    """Split citations by the most reliable entry-index form present.
+
+    Only one form is ever used. Mixing them is what allowed a reference list
+    numbered ``[1] ... [64]`` and an appendix numbered ``1.`` ``2.`` to be cut
+    against each other.
 
     Args:
         text: The bibliography block.
 
     Returns:
-        The segmented entries, prefix included.
+        The segmented entries, or an empty list when no form indexes the block
+        convincingly.
     """
-    parts = _NUMBERED_PREFIX.split(text)
-
-    citations = []
-    for i in range(1, len(parts), 2):
-        prefix = parts[i]
-        cit_text = parts[i + 1] if i + 1 < len(parts) else ""
-        citations.append((prefix + cit_text).strip())
-
-    return [c for c in citations if c]
+    for pattern in _PREFIX_FORMS:
+        matches = list(pattern.finditer(text))
+        if len(matches) < 2:
+            continue
+        if not _looks_like_entry_numbering([int(m.group(1)) for m in matches]):
+            logger.debug("Rejected %d %s prefixes: not reference numbering", len(matches), pattern)
+            continue
+        return _split_on_prefix(text, pattern)
+    return []
 
 
 def _split_by_blank_lines(text: str) -> list[str]:
@@ -252,8 +314,9 @@ def split_citations(text: str) -> list[str]:
 
     strategies: list[tuple[str, list[str]]] = []
 
-    if _NUMBERED_PREFIX.search(text):
-        strategies.append(("numbered prefix", _split_by_numbered_prefixes(text)))
+    numbered = _split_by_numbered_prefixes(text)
+    if numbered:
+        strategies.append(("numbered prefix", numbered))
 
     if _BLANK_LINE.search(text):
         strategies.append(("blank line", _split_by_blank_lines(text)))
