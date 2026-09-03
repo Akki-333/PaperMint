@@ -1,10 +1,25 @@
+# Streamlit theme, kept in step with papermint/ui/theme.py.
+# Streamlit paints its own widget chrome from these values, so they must match
+# the design tokens or the framework's controls sit a shade off every custom
+# component on the page.
+
 [theme]
 base = "dark"
-primaryColor = "#34D399"
-backgroundColor = "#0F172A"
-secondaryBackgroundColor = "#1E293B"
-textColor = "#F1F5F9"
+primaryColor = "#34D399"              # COLOR["accent"]
+backgroundColor = "#0F172A"           # COLOR["canvas"]
+secondaryBackgroundColor = "#161F33"  # COLOR["surface"]
+textColor = "#EEF2F8"                 # COLOR["text"]
 font = "sans serif"
 
 [server]
 maxUploadSize = 50
+enableStaticServing = false
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+
+[runner]
+magicEnabled = false
