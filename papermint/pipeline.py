@@ -34,11 +34,12 @@ from papermint.models import (
     BatchResult,
     Citation,
     CitationStyle,
+    DetectionMethod,
     DocumentKind,
     DocumentStats,
     ExtractionResult,
 )
-from papermint.parsers.bibliography_detector import characterize_document
+from papermint.parsers.bibliography_detector import DetectionOutcome, characterize_document
 from papermint.parsers.citation_parser import is_bibliographic_entry, parse_citation
 from papermint.parsers.citation_splitter import split_citations
 from papermint.parsers.style_detector import detect_style
@@ -116,12 +117,16 @@ class PipelineOptions:
 
     Attributes:
         force_parse: Treat the whole document as a bibliography.
+        force_prose: Treat the document as having no bibliography at all, so no
+            citations are produced. The counterpart to ``force_parse``, for when
+            detection wrongly finds a reference list inside narrative text.
         summary_sentences: How many sentences the summary should contain.
         build_summary: Whether to run the summariser at all.
         strip_furniture: Whether to remove page numbers and running headers.
     """
 
     force_parse: bool = False
+    force_prose: bool = False
     summary_sentences: int = DEFAULT_SUMMARY_SENTENCES
     build_summary: bool = True
     strip_furniture: bool = True
@@ -286,6 +291,22 @@ class PipelineService:
         # -- Stage 2: characterise ------------------------------------------
         self._report(on_progress, PipelineStage.CHARACTERIZE)
         outcome = characterize_document(text, force_parse=opts.force_parse)
+        if opts.force_prose:
+            # The reader overruled the classifier. Produce no citations rather
+            # than parsing a block the reader has said is not a bibliography.
+            outcome = DetectionOutcome(
+                bibliography_text="",
+                body_text=text.strip(),
+                method=DetectionMethod.NONE,
+                kind=DocumentKind.NON_ACADEMIC,
+                confidence=0.0,
+                notes=[
+                    (
+                        "You asked for this document to be read as prose, so no "
+                        "citations were parsed from it."
+                    )
+                ],
+            )
         warnings.extend(outcome.notes)
 
         # -- Stage 3: parse --------------------------------------------------

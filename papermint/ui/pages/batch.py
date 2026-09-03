@@ -39,17 +39,28 @@ _SIGNATURE_KEY = "pm_batch_signature"
 _RESULT_KEY = "pm_batch_result"
 
 
-def _batch_signature(files: list[Any], force_parse: bool) -> str:
+#: The reader's override of the classifier, applied to every file in the batch.
+#: Each file is still characterised on its own merits under the default, so a
+#: mixed upload of papers, catalogues and prose needs no setting at all.
+_READING_MODES: dict[str, tuple[bool, bool]] = {
+    "Detect each file automatically": (False, False),
+    "Every file is a reference list": (True, False),
+    "No file has references": (False, True),
+}
+
+
+def _batch_signature(files: list[Any], force_parse: bool, force_prose: bool) -> str:
     """Build a cache key covering every uploaded file and the options.
 
     Args:
         files: The uploaded files.
         force_parse: The bibliography override.
+        force_prose: The no-bibliography override.
 
     Returns:
         A digest identifying this batch.
     """
-    return "|".join(upload_signature(f, force_parse) for f in files)
+    return "|".join(upload_signature(f, force_parse, force_prose) for f in files)
 
 
 def _run_batch(files: list[Any], options: PipelineOptions) -> BatchResult:
@@ -86,7 +97,7 @@ def _ensure_result(files: list[Any], options: PipelineOptions) -> BatchResult:
     Returns:
         The batch result.
     """
-    signature = _batch_signature(files, options.force_parse)
+    signature = _batch_signature(files, options.force_parse, options.force_prose)
     if st.session_state.get(_SIGNATURE_KEY) == signature:
         return st.session_state[_RESULT_KEY]
 
@@ -205,7 +216,24 @@ def render() -> None:
         )
         return
 
-    result = _ensure_result(list(uploaded_files), PipelineOptions())
+    with st.expander("Options"):
+        reading = st.radio(
+            "How to read these documents",
+            options=list(_READING_MODES),
+            index=0,
+            help=(
+                "Each file is classified on its own merits, so a mixed batch of "
+                "papers, catalogues and prose needs no setting here. Override only "
+                "when the verdicts below are wrong."
+            ),
+            key="pm_batch_reading_mode",
+        )
+
+    force_parse, force_prose = _READING_MODES[reading]
+    result = _ensure_result(
+        list(uploaded_files),
+        PipelineOptions(force_parse=force_parse, force_prose=force_prose),
+    )
 
     _render_summary(result)
     st.write("")

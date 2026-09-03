@@ -48,6 +48,17 @@ _SIGNATURE_KEY = "pm_extract_signature"
 _RESULT_KEY = "pm_extract_result"
 _CITATIONS_KEY = "pm_extract_citations"
 
+#: The reader's override of the classifier, mapped to
+#: ``(force_parse, force_prose)``. Detection is autonomous, so "Detect
+#: automatically" is the default and the only option most readers ever need.
+#: The other two exist because a classifier that cannot be overruled leaves a
+#: reader with no recourse when it is wrong.
+_READING_MODES: dict[str, tuple[bool, bool]] = {
+    "Detect automatically": (False, False),
+    "Every line is a reference": (True, False),
+    "There are no references": (False, True),
+}
+
 _SORT_OPTIONS = (
     "Document order",
     "Confidence, lowest first",
@@ -119,7 +130,12 @@ def _ensure_result(uploaded_file: Any, options: PipelineOptions) -> ExtractionRe
     Returns:
         The result, or None when processing failed.
     """
-    signature = upload_signature(uploaded_file, options.force_parse, options.summary_sentences)
+    signature = upload_signature(
+        uploaded_file,
+        options.force_parse,
+        options.force_prose,
+        options.summary_sentences,
+    )
 
     if st.session_state.get(_SIGNATURE_KEY) == signature:
         return st.session_state.get(_RESULT_KEY)
@@ -178,6 +194,10 @@ def _render_verdict(result: ExtractionResult, citations: list[Citation]) -> None
             tone="caution",
             details=[
                 "Every segment is listed below so you can check the decision for yourself.",
+                (
+                    "If this really is a reference list, set How to read this document "
+                    'to "Every line is a reference" under Options.'
+                ),
             ],
         )
         return
@@ -189,6 +209,12 @@ def _render_verdict(result: ExtractionResult, citations: list[Citation]) -> None
             "so it did not invent any. The document summary and its full text are "
             "below.",
             tone="info",
+            details=[
+                (
+                    "If this document is a reference list without a heading, set How to "
+                    'read this document to "Every line is a reference" under Options.'
+                ),
+            ],
         )
         return
 
@@ -490,8 +516,23 @@ def render() -> None:
             help="Number of sentences in the document summary.",
             key="pm_summary_len",
         )
+        reading = st.radio(
+            "How to read this document",
+            options=list(_READING_MODES),
+            index=0,
+            help=(
+                "PaperMint classifies the document itself. Override this only when "
+                "the verdict below is wrong."
+            ),
+            key="pm_reading_mode",
+        )
 
-    options = PipelineOptions(summary_sentences=summary_sentences)
+    force_parse, force_prose = _READING_MODES[reading]
+    options = PipelineOptions(
+        force_parse=force_parse,
+        force_prose=force_prose,
+        summary_sentences=summary_sentences,
+    )
     result = _ensure_result(uploaded_file, options)
     if result is None:
         return
