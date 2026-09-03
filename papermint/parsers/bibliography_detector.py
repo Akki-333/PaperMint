@@ -502,23 +502,35 @@ def characterize_document(text: str, force_parse: bool = False) -> DetectionOutc
 
     # 3. A front-matter title declaring the whole document a bibliography.
     #    A declaration alone proves nothing, so it must be corroborated by the
-    #    citation density of the text beneath it and must cover the document.
+    #    citation density of the text beneath it or, for annotated bibliographies
+    #    where descriptive prose dominates line count, by distinct author entries.
     if declaration:
         declaring_line, declared_at = declaration
         following = lines[declared_at + 1 :]
         density = _density(following)
+        is_annotated = "annotated" in declaring_line.lower() or _looks_annotated(stripped)
+        author_entries_count = sum(1 for ln in following if _AUTHOR_ENTRY.match(ln))
 
         # Coverage is deliberately not required here. A catalogue legitimately
         # opens with administrative front matter -- a cover sheet, a resume card,
         # a filing number -- so the share of the document beneath the title is
         # well under REFERENCE_ONLY_COVERAGE even when every entry is a
         # reference. Density of the text beneath the declaration is the honest
-        # corroboration; the declaration alone still classifies nothing.
-        if density > BIBLIOGRAPHY_DENSITY_THRESHOLD:
+        # corroboration for compact reference lists; for annotated bibliographies
+        # whose line count is dominated by narrative descriptions, a run of
+        # author-headed entries provides the honest corroboration.
+        if density > BIBLIOGRAPHY_DENSITY_THRESHOLD or (is_annotated and author_entries_count >= 3):
             kind = (
-                DocumentKind.ANNOTATED_BIBLIOGRAPHY
-                if ("annotated" in declaring_line.lower() or _looks_annotated(stripped))
-                else DocumentKind.BIBLIOGRAPHY
+                DocumentKind.ANNOTATED_BIBLIOGRAPHY if is_annotated else DocumentKind.BIBLIOGRAPHY
+            )
+            evidence_note = (
+                f"{author_entries_count} catalog entries were identified beneath it."
+                if (
+                    is_annotated
+                    and author_entries_count >= 3
+                    and density <= BIBLIOGRAPHY_DENSITY_THRESHOLD
+                )
+                else f"{density:.0%} of the lines beneath it read as references."
             )
             return DetectionOutcome(
                 bibliography_text=stripped,
@@ -528,14 +540,14 @@ def characterize_document(text: str, force_parse: bool = False) -> DetectionOutc
                 confidence=0.9,
                 notes=[
                     f'The document declares in its front matter: "{declaring_line[:80]}".',
-                    f"{density:.0%} of the lines beneath it read as references.",
+                    evidence_note,
                 ],
             )
         logger.debug(
-            "Front-matter declaration %r not corroborated (density %.2f, coverage %.2f)",
+            "Front-matter declaration %r not corroborated (density %.2f, author_entries %d)",
             declaring_line[:60],
             density,
-            coverage,
+            author_entries_count,
         )
 
     # 4. Density scan across the tail of the document.

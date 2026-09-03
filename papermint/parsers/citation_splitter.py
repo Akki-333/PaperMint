@@ -315,21 +315,23 @@ def split_citations(text: str) -> list[str]:
     if not text.strip():
         return []
 
+    lines = text.split("\n")
     strategies: list[tuple[str, list[str]]] = []
-
     numbered = _split_by_numbered_prefixes(text)
     if numbered:
         strategies.append(("numbered prefix", numbered))
 
+    author_lines = sum(1 for line in lines if line.strip() and _AUTHOR_BOUNDARY.match(line.strip()))
+    if author_lines >= 3:
+        strategies.append(("author boundary", _split_by_author_boundary(text)))
+
     if _BLANK_LINE.search(text):
         strategies.append(("blank line", _split_by_blank_lines(text)))
 
-    lines = text.split("\n")
     if any(line.strip() and line != line.lstrip() for line in lines):
         strategies.append(("hanging indent", _split_by_hanging_indent(text)))
 
-    author_lines = sum(1 for line in lines if line.strip() and _AUTHOR_BOUNDARY.match(line.strip()))
-    if author_lines > 1:
+    if author_lines in (1, 2):
         strategies.append(("author boundary", _split_by_author_boundary(text)))
 
     for name, segments in strategies:

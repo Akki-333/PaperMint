@@ -61,8 +61,9 @@ _SURNAME = rf"{_PARTICLE}[A-Z][\w'-]*(?:[-\s][A-Z][\w'-]+)?"
 #: A run of initials such as "J." or "V. M." or "C. D. E.".
 _INITIALS = r"(?:[A-Z]\.[ \t]*){1,4}"
 
-#: One author written surname-first: "Smith, J. A." or "Smith, John A."
-_INVERTED_UNIT = re.compile(rf"({_SURNAME}),[ \t]+({_INITIALS}|[A-Z][a-z]+(?:[ \t]+[A-Z]\.?)*)")
+_INVERTED_UNIT = re.compile(
+    rf"({_SURNAME}),[ \t]+({_INITIALS}|[A-Z][a-z]+(?:[ \t]+[A-Z]\.(?![a-z])|[ \t]+[A-Z]\b(?![A-Za-z]))*)"
+)
 
 #: One author written initials-first: "J. A. Smith", "V. M. Bastidas".
 _DIRECT_UNIT = re.compile(rf"({_INITIALS})({_SURNAME})")
@@ -774,10 +775,15 @@ def _split_header(text: str) -> str:
     if len(lines) < 2:
         return header
 
-    # Walk back over trailing commentary. The previous rule only trimmed an
-    # entry of more than three lines, so the common three-line catalogue form
-    # -- citation, imprint, annotation -- kept its annotation, and the title
-    # extractor reported the commentary as the title of the work.
+    # Look for the start of annotation prose by walking forward.
+    # In catalogue entries and annotated bibliographies, metadata (authors,
+    # title, contributors, pagination, imprint, year) heads the entry. The
+    # descriptive commentary begins at the first line of narrative prose.
+    for i in range(2, len(lines)):
+        if _is_annotation_line(lines[i]):
+            return "\n".join(lines[:i])
+
+    # Walk back over trailing commentary as fallback.
     end = len(lines)
     while end > 1 and _is_annotation_line(lines[end - 1]):
         end -= 1
