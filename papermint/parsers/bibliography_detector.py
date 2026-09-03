@@ -37,6 +37,19 @@ _YEAR_PATTERN = re.compile(r"\b(19|20)\d{2}\b")
 _AUTHOR_PATTERN = re.compile(r"[A-Z][a-z]+,?\s+[A-Z]\.")
 _BRACKET_PATTERN = re.compile(r"^\[\d+\]")
 _LOCATOR_PATTERN = re.compile(r"\b(?:vol|no|pp)\.\s*\d+", re.IGNORECASE)
+_ARXIV_PATTERN = re.compile(r"\barXiv:\s*\d{4}\.\d{4,5}", re.IGNORECASE)
+
+#: The closing "Journal Abbrev. Volume, Pages (Year)" of a numbered reference.
+#: Recognising it keeps the wrapped second line of an entry from reading as
+#: prose, which would otherwise end the backwards scan inside the reference
+#: list rather than above it.
+_VENUE_PATTERN = re.compile(
+    r"[A-Z][A-Za-z.]*\.?\s+\d{1,4},\s*[A-Za-z]?\d[\w-]*\s*\((?:19|20)\d{2}\)"
+)
+
+#: Words per line above which a non-bibliographic line counts as real prose
+#: rather than the short tail of a wrapped reference.
+_PROSE_WORD_FLOOR = 8
 
 #: A first line that declares the whole document to be a bibliography.
 _TITLE_PAGE_PATTERN = re.compile(
@@ -122,9 +135,27 @@ def _citation_signal(line: str) -> bool:
         return False
     if _DOI_PATTERN.search(line) or _BRACKET_PATTERN.search(line):
         return True
+    if _ARXIV_PATTERN.search(line) or _VENUE_PATTERN.search(line):
+        return True
     if _LOCATOR_PATTERN.search(line):
         return True
     return bool(_YEAR_PATTERN.search(line) and _AUTHOR_PATTERN.search(line))
+
+
+def _is_prose(line: str) -> bool:
+    """Judge whether a line is narrative text rather than a reference fragment.
+
+    A wrapped reference leaves short tails such as "081406 (2009)." on their own
+    line. Those must not be mistaken for body prose, or the backwards scan stops
+    inside the reference list.
+
+    Args:
+        line: One stripped line of text.
+
+    Returns:
+        True when the line reads as a sentence of narrative body text.
+    """
+    return len(line.split()) >= _PROSE_WORD_FLOOR and not _citation_signal(line)
 
 
 def _density(lines: list[str]) -> float:
@@ -162,13 +193,20 @@ def _find_dense_block_start(lines: list[str], search_from: int) -> int:
     at the first sustained run of prose, which is the boundary between the
     narrative body and the reference list.
 
+    Only lines that read as real prose count towards the run. A wrapped
+    reference leaves short numeric tails behind, and counting those would end
+    the scan inside the reference list.
+
     Args:
         lines: The document's lines, unstripped.
-        search_from: Index below which a prose run is allowed to end the scan.
+        search_from: The midpoint of the document, retained so the scan can be
+            reported against the region that triggered it.
 
     Returns:
         The index of the first line of the dense block.
     """
+    del search_from  # The prose run alone decides the boundary.
+
     boundary = len(lines)
     gap = 0
     for index in range(len(lines) - 1, -1, -1):
@@ -179,8 +217,15 @@ def _find_dense_block_start(lines: list[str], search_from: int) -> int:
             boundary = index
             gap = 0
             continue
+        if not _is_prose(stripped):
+            continue
         gap += 1
-        if gap > _MAX_PROSE_GAP and index < search_from:
+        # A sustained run of narrative text is the top of the reference list.
+        # The previous implementation also required the run to sit above the
+        # document midpoint, which made the break unreachable for any paper
+        # whose appendix and references filled the bottom half, so an entire
+        # appendix was swallowed into the bibliography.
+        if gap > _MAX_PROSE_GAP:
             break
     return boundary
 
