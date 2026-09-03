@@ -85,6 +85,12 @@ BIBLIOGRAPHY_HEADERS: list[str] = [
 #: Maximum lines from the beginning of a document inspected for title-page declarations.
 FRONT_MATTER_MAX_LINES = 120
 
+#: Longest a front-matter line may be and still read as a bibliography *title*
+#: rather than a sentence that merely mentions the word. Real catalogue titles
+#: run to about a dozen words; this leaves headroom without admitting prose such
+#: as "We present a system that constructs a bibliography from scanned documents."
+FRONT_MATTER_DECLARATION_MAX_WORDS = 18
+
 #: Fraction of trailing lines that must look bibliographic to trigger the
 #: density fallback in :mod:`papermint.parsers.bibliography_detector`.
 BIBLIOGRAPHY_DENSITY_THRESHOLD = 0.20

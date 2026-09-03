@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from papermint.config import (
     BIBLIOGRAPHY_DENSITY_THRESHOLD,
     BIBLIOGRAPHY_HEADERS,
+    FRONT_MATTER_DECLARATION_MAX_WORDS,
     FRONT_MATTER_MAX_LINES,
     REFERENCE_ONLY_COVERAGE,
 )
@@ -35,11 +36,43 @@ logger = logging.getLogger(__name__)
 
 _DOI_PATTERN = re.compile(r"10\.\d{4,9}/[^\s]+")
 _YEAR_PATTERN = re.compile(r"\b(19|20)\d{2}\b")
-_AUTHOR_PATTERN = re.compile(r"[A-Z][a-z]+,?\s+[A-Z]\.")
-_AUTHOR_FULL_PATTERN = re.compile(r"^[A-Z][a-zA-Z\s\-']+,?\s+[A-Z][a-zA-Z\s\-']+")
 _BRACKET_PATTERN = re.compile(r"^\[\d+\]")
 _LOCATOR_PATTERN = re.compile(r"\b(?:vol|no|pp)\.\s*\d+", re.IGNORECASE)
 _ARXIV_PATTERN = re.compile(r"\barXiv:\s*\d{4}\.\d{4,5}", re.IGNORECASE)
+_VOLUME_ISSUE = re.compile(r"\b\d{1,4}\s*\(\d{1,4}\)")
+_QUOTED_TITLE = re.compile(r'"[^"]{4,}"')
+
+#: A work title in catalogue punctuation: three or more Title-Case or ALL-CAPS
+#: words, function words allowed between, closed by a full stop or colon.
+#: "LEE NATONI: YOUNG NAVAJO." and "The Boy Who Lived With the Bears." match.
+#: Prose does not: a capitalised run such as "The Ministry of Education" runs on
+#: into a lowercase verb and never reaches the terminator.
+_WORK_TITLE = re.compile(
+    r"(?:[A-Z][A-Za-z'-]+|[A-Z][A-Z'-]{2,})"
+    r"(?:[ :]+(?:[A-Z][A-Za-z'-]+|[A-Z][A-Z'-]{2,}"
+    r"|of|the|and|with|a|an|to|in|on|for|from)){2,}"
+    r"\s*[.:](?:\s|$)"
+)
+
+#: A surname allowing particles, hyphens, apostrophes and all-capital forms.
+#: This duplicates the fragment in citation_splitter.py; the two should be
+#: unified into one canonical definition, which is tracked as follow-up work.
+_SURNAME = (
+    r"(?:d[eu]l?\s+|de\s+la\s+|van\s+der\s+|van\s+den\s+|van\s+|von\s+|der\s+|"
+    r"la\s+|le\s+|ter\s+|ten\s+|bin\s+|al-)?"
+    r"(?:[A-Z][\w'-]+|[A-Z]{2,})"
+    r"(?:[-\s][A-Z][\w'-]+)?"
+)
+
+#: A line opening a catalogue entry: "Acker, Helen.", "* Buff, Mary and Conrad",
+#: "van der Berg, Anna", "Smith, J. A."
+#:
+#: The comma is mandatory and the surname is a single token. The previous
+#: pattern made the comma optional and let the surname class swallow whole
+#: clauses, so it matched any title-case sentence: "The Ministry of Education
+#: published new guidance." Ten of twelve ordinary prose lines carrying a proper
+#: noun were reported as bibliographic, and a prose document scored 89% density.
+_AUTHOR_ENTRY = re.compile(rf"^\s*[*•\-]?\s*{_SURNAME},\s+[A-Z][\w'.-]+")
 
 _BOOK_IMPRINT = re.compile(
     r"\b(?:Press|Publishing|Publishers|Books|Verlag|Co\.|Inc\.|Ltd\.)\b", re.IGNORECASE
@@ -62,17 +95,36 @@ _VENUE_PATTERN = re.compile(
 #: rather than the short tail of a wrapped reference.
 _PROSE_WORD_FLOOR = 8
 
-#: Pattern detecting document title declarations for bibliographies and catalogs.
+#: A line whose *first* meaningful token declares the document a bibliography.
+#:
+#: Anchored with ``^``. The previous pattern allowed the keyword to appear
+#: anywhere in the line, so an abstract reading "We present a system that
+#: constructs a bibliography from scanned documents." classified the entire
+#: paper as a bibliography at 0.95 confidence with no body text left.
 _TITLE_PAGE_PATTERN = re.compile(
-    r"(?:^|\b)(?:title\s*[:.-]?\s*)?"
+    r"^\s*(?:title\s*[:.—-]?\s+)?"
     r"(?:an?\s+|the\s+)?"
-    r"(?:annotated\s+|selected\s+|classified\s+|comprehensive\s+|curriculum\s+)?"
+    r"(?:annotated\s+|selected\s+|classified\s+|comprehensive\s+|curriculum\s+|critical\s+)?"
     r"(?:bibliography|works\s+cited|reference\s+list|literature\s+cited)\b",
     re.IGNORECASE,
 )
 
+#: Three or more consecutive dots: a table-of-contents leader.
+_TOC_LEADER = re.compile(r"\.{3,}")
+
+#: A short line ending in a bare page number, the other contents-page form.
+_TOC_PAGE_NUMBER = re.compile(r"\b\d{1,4}\s*$")
+
+#: What may follow the keyword and still read as a title rather than a clause.
+_TITLE_CONTINUATION = re.compile(r"(?:of|on|for|in)\s+[A-Z0-9\"'“]")
+
 #: How many consecutive non-citation lines end a density-detected block.
 _MAX_PROSE_GAP = 4
+
+#: How many corroborating weak signals a line needs before it counts as
+#: bibliographic. One is not enough: a bare year, or a name followed by a comma,
+#: occurs constantly in narrative prose.
+_WEAK_SIGNALS_REQUIRED = 2
 
 #: Minimum words of trailing prose that mark an entry as annotated.
 _ANNOTATION_WORD_FLOOR = 40
@@ -160,22 +212,89 @@ def _citation_signal(line: str) -> bool:
     """
     if not line:
         return False
+
+    # Decisive on their own. No ordinary sentence carries a DOI, an arXiv
+    # identifier, a bracketed entry index, a "vol. 12" locator, or the closing
+    # "Journal Abbrev. 95, 260404 (2005)" of a numbered reference.
     if _DOI_PATTERN.search(line) or _BRACKET_PATTERN.search(line):
         return True
     if _ARXIV_PATTERN.search(line) or _VENUE_PATTERN.search(line):
         return True
-    if _LOCATOR_PATTERN.search(line) or _BOOK_PAGINATION.search(line):
+    if _LOCATOR_PATTERN.search(line):
         return True
-    if _CONTRIBUTOR_ROLE.search(line):
-        return True
-    if _BOOK_IMPRINT.search(line) and _YEAR_PATTERN.search(line):
-        return True
-    if _YEAR_PATTERN.search(line) and _AUTHOR_PATTERN.search(line):
-        return True
-    return bool(
-        _AUTHOR_FULL_PATTERN.match(line)
-        and (_YEAR_PATTERN.search(line) or ":" in line or '"' in line or "." in line)
+
+    # Corroborative. Each of these appears in ordinary prose often enough that
+    # none can decide alone: a year, a capitalised name followed by a comma, the
+    # word "Press", a page count. Two independent signals are required.
+    #
+    # Treating any one of them as decisive is what let "The Ministry of
+    # Education published new guidance." read as a reference.
+    weak = (
+        _AUTHOR_ENTRY.match(line),
+        _WORK_TITLE.search(line),
+        _BOOK_IMPRINT.search(line),
+        _BOOK_PAGINATION.search(line),
+        _CONTRIBUTOR_ROLE.search(line),
+        _YEAR_PATTERN.search(line),
+        _VOLUME_ISSUE.search(line),
+        _QUOTED_TITLE.search(line),
     )
+    return sum(1 for signal in weak if signal) >= _WEAK_SIGNALS_REQUIRED
+
+
+def _is_contents_line(line: str) -> bool:
+    """Check whether a line is a table-of-contents entry.
+
+    A contents page lists "Bibliography .......... 89", which names a section
+    the document contains rather than declaring what the document *is*. Reading
+    it as a declaration reclassified any thesis with a contents page.
+
+    Args:
+        line: One stripped line of text.
+
+    Returns:
+        True when the line is a contents entry rather than a title.
+    """
+    if _TOC_LEADER.search(line):
+        return True
+    return bool(_TOC_PAGE_NUMBER.search(line)) and len(line.split()) <= 6
+
+
+def _front_matter_declaration(lines: list[str]) -> tuple[str, int] | None:
+    """Find a front-matter line that declares the document a bibliography.
+
+    All of the following must hold, because a bare keyword match is far too
+    weak to classify a whole document:
+
+    * the keyword heads the line, so a mid-sentence mention cannot qualify;
+    * the line is title-shaped, not a sentence;
+    * it is not a contents-page entry;
+    * what follows the keyword names a work rather than continuing as prose.
+
+    Args:
+        lines: The document's stripped, non-empty lines.
+
+    Returns:
+        The declaring line and its index, or None when there is none.
+    """
+    for index, line in enumerate(lines[:FRONT_MATTER_MAX_LINES]):
+        match = _TITLE_PAGE_PATTERN.match(line)
+        if not match:
+            continue
+        if len(line.split()) > FRONT_MATTER_DECLARATION_MAX_WORDS:
+            continue
+        if _is_contents_line(line):
+            continue
+        tail = line[match.end() :].strip()
+        if (
+            tail
+            and tail[0] not in ":—-("
+            and not tail[0].isupper()
+            and not _TITLE_CONTINUATION.match(tail)
+        ):
+            continue
+        return line, index
+    return None
 
 
 def _is_prose(line: str) -> bool:
@@ -340,76 +459,84 @@ def characterize_document(text: str, force_parse: bool = False) -> DetectionOutc
     header_matches.extend(list(_MULTI_LINE_HEADER_PATTERN.finditer(text)))
     header_matches.sort(key=lambda m: m.start())
 
-    # 2. Front-matter inspection: detect if the document declares itself as a bibliography
     lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
-    front_lines = lines[:FRONT_MATTER_MAX_LINES]
-    title_declaration = None
-    for line in front_lines:
-        if _TITLE_PAGE_PATTERN.search(line) and len(line.split()) <= 25:
-            title_declaration = line
-            break
+    declaration = _front_matter_declaration(lines)
 
-    if title_declaration:
-        decl_lower = title_declaration.lower()
-        is_annotated_title = "annotated" in decl_lower
-        # If there is an explicit section heading separating front-matter from entries,
-        # slice from the section heading.
-        if header_matches:
-            best_match = header_matches[-1]
-            candidate = text[best_match.end() :].strip()
-            heading = best_match.group(0).strip().replace("\n", " ")
-            body = text[: best_match.start()].strip()
+    # 2. An explicit section heading. This runs first because a heading standing
+    #    alone on its own line is the most specific evidence in the document. It
+    #    used to run *after* the front-matter keyword scan, so the weakest signal
+    #    outranked the strongest and a thesis with a contents page was relabelled
+    #    a reference list.
+    for match in reversed(header_matches):
+        candidate = text[match.end() :].strip()
+        if not candidate:
+            continue
+        heading = match.group(0).strip().replace("\n", " ")
+        body = text[: match.start()].strip()
+        coverage = len(candidate) / len(stripped)
+        # Calling the whole document a bibliography needs more than a heading:
+        # the text beneath it has to read like references. A chapter headed
+        # "Selected Bibliography" that then discusses the literature in prose is
+        # not a reference list, and labelling it one also replaces its summary.
+        dense = _density([ln.strip() for ln in candidate.split("\n") if ln.strip()])
+        kind = (
+            DocumentKind.BIBLIOGRAPHY
+            if coverage >= REFERENCE_ONLY_COVERAGE and dense > BIBLIOGRAPHY_DENSITY_THRESHOLD
+            else DocumentKind.RESEARCH_PAPER
+        )
+        if kind is DocumentKind.BIBLIOGRAPHY and (
+            _looks_annotated(candidate) or (declaration and "annotated" in declaration[0].lower())
+        ):
+            kind = DocumentKind.ANNOTATED_BIBLIOGRAPHY
+        notes = [f'Matched the heading "{heading}".']
+        if declaration:
+            notes.append(f'The front matter also declares: "{declaration[0][:80]}".')
+        return DetectionOutcome(
+            bibliography_text=candidate,
+            body_text=body,
+            method=DetectionMethod.SECTION_HEADER,
+            kind=kind,
+            confidence=0.95 if declaration else 0.9,
+            notes=notes,
+        )
+
+    # 3. A front-matter title declaring the whole document a bibliography.
+    #    A declaration alone proves nothing, so it must be corroborated by the
+    #    citation density of the text beneath it and must cover the document.
+    if declaration:
+        declaring_line, declared_at = declaration
+        following = lines[declared_at + 1 :]
+        density = _density(following)
+
+        # Coverage is deliberately not required here. A catalogue legitimately
+        # opens with administrative front matter -- a cover sheet, a resume card,
+        # a filing number -- so the share of the document beneath the title is
+        # well under REFERENCE_ONLY_COVERAGE even when every entry is a
+        # reference. Density of the text beneath the declaration is the honest
+        # corroboration; the declaration alone still classifies nothing.
+        if density > BIBLIOGRAPHY_DENSITY_THRESHOLD:
             kind = (
                 DocumentKind.ANNOTATED_BIBLIOGRAPHY
-                if (is_annotated_title or _looks_annotated(candidate))
+                if ("annotated" in declaring_line.lower() or _looks_annotated(stripped))
                 else DocumentKind.BIBLIOGRAPHY
             )
             return DetectionOutcome(
-                bibliography_text=candidate,
-                body_text=body,
-                method=DetectionMethod.SECTION_HEADER,
-                kind=kind,
-                confidence=0.95,
-                notes=[f'Identified via front-matter title and section heading "{heading}".'],
-            )
-
-        # Standalone bibliography catalog with no internal section heading
-        kind = (
-            DocumentKind.ANNOTATED_BIBLIOGRAPHY
-            if (is_annotated_title or _looks_annotated(stripped))
-            else DocumentKind.BIBLIOGRAPHY
-        )
-        return DetectionOutcome(
-            bibliography_text=stripped,
-            body_text="",
-            method=DetectionMethod.TITLE_PAGE,
-            kind=kind,
-            confidence=0.95,
-            notes=[f'The document declares in its front matter: "{title_declaration[:80]}".'],
-        )
-
-    # 3. An explicit section heading (for research papers).
-    for match in reversed(header_matches):
-        candidate = text[match.end() :].strip()
-        if candidate:
-            heading = match.group(0).strip().replace("\n", " ")
-            body = text[: match.start()].strip()
-            coverage = len(candidate) / len(stripped)
-            kind = (
-                DocumentKind.BIBLIOGRAPHY
-                if coverage >= REFERENCE_ONLY_COVERAGE
-                else DocumentKind.RESEARCH_PAPER
-            )
-            if kind is DocumentKind.BIBLIOGRAPHY and _looks_annotated(candidate):
-                kind = DocumentKind.ANNOTATED_BIBLIOGRAPHY
-            return DetectionOutcome(
-                bibliography_text=candidate,
-                body_text=body,
-                method=DetectionMethod.SECTION_HEADER,
+                bibliography_text=stripped,
+                body_text="",
+                method=DetectionMethod.TITLE_PAGE,
                 kind=kind,
                 confidence=0.9,
-                notes=[f'Matched the heading "{heading}".'],
+                notes=[
+                    f'The document declares in its front matter: "{declaring_line[:80]}".',
+                    f"{density:.0%} of the lines beneath it read as references.",
+                ],
             )
+        logger.debug(
+            "Front-matter declaration %r not corroborated (density %.2f, coverage %.2f)",
+            declaring_line[:60],
+            density,
+            coverage,
+        )
 
     # 4. Density scan across the tail of the document.
     lines = text.split("\n")
