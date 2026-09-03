@@ -1,5 +1,10 @@
-from papermint.models import CitationStyle
-from papermint.parsers.bibliography_detector import detect_bibliography_section
+from papermint.models import CitationStyle, DetectionMethod, DocumentKind
+from papermint.parsers.bibliography_detector import (
+    _citation_signal,
+    _is_prose,
+    characterize_document,
+    detect_bibliography_section,
+)
 from papermint.parsers.citation_parser import parse_citation
 from papermint.parsers.citation_splitter import split_citations
 from papermint.parsers.style_detector import detect_style
@@ -226,3 +231,131 @@ def test_detect_multi_line_part_heading():
     assert "PART TWO Annotated Bibliography" in outcome.notes[0]
     assert "Introductory notes" in outcome.body_text
     assert "Acker, Helen" in outcome.bibliography_text
+
+
+# --- The line-level signal must not fire on prose -------------------------
+
+PROSE_WITH_PROPER_NOUNS = [
+    "The Ministry of Education published new guidance.",
+    "This Agreement shall be governed by English law.",
+    "The European Commission has proposed a new directive.",
+    "Under the Data Protection Act citizens may request their records.",
+    "The Prime Minister addressed Parliament on Tuesday morning.",
+    "Chapter Three describes the Method in detail.",
+    "The United States Department of Agriculture negotiated new terms.",
+]
+
+HUMANITIES_CATALOGUE_LINES = [
+    "Acker, Helen. The Boy Who Lived With the Bears. Illus. by Ray Cruz.",
+    "Abelard-Schuman. 1968. 136 p.",
+    "* Buff, Mary and Conrad. Hah-Nee of the Cliff Dwellers.",
+    "Acker, Helen. LEE NATONI: YOUNG NAVAJO.",
+    "Houghton Mifflin Co. 1964. 184 p.",
+]
+
+
+def test_citation_signal_rejects_prose_carrying_proper_nouns():
+    """A capitalised name in a sentence is not a reference.
+
+    The signal briefly reduced to "starts with a capital, has a later capital,
+    contains a period", which flagged ten of twelve ordinary prose lines and
+    scored a pure-prose policy document at 89% citation density.
+    """
+    for line in PROSE_WITH_PROPER_NOUNS:
+        assert _citation_signal(line) is False, line
+
+
+def test_citation_signal_accepts_humanities_catalogue_lines():
+    for line in HUMANITIES_CATALOGUE_LINES:
+        assert _citation_signal(line) is True, line
+
+
+def test_prose_lines_are_still_recognised_as_prose():
+    """_is_prose drives the backwards scan's stopping condition.
+
+    Once every prose line reads as a citation signal, _is_prose can never
+    return True, the prose-run break becomes unreachable, and the scan walks
+    up through the body swallowing it into the bibliography.
+    """
+    for line in PROSE_WITH_PROPER_NOUNS:
+        if len(line.split()) >= 8:
+            assert _is_prose(line) is True, line
+
+
+def test_prose_document_with_proper_nouns_yields_no_bibliography():
+    text = "\n".join(["National Digital Literacy Scheme", "", *PROSE_WITH_PROPER_NOUNS])
+    outcome = characterize_document(text)
+    assert outcome.kind is DocumentKind.NON_ACADEMIC
+    assert outcome.bibliography_text == ""
+
+
+# --- A front-matter keyword must not outrank structure --------------------
+
+
+def test_an_abstract_mentioning_bibliography_is_not_a_bibliography():
+    """The keyword must head the line, not merely appear in it.
+
+    An unanchored search classified this paper as a bibliography at 0.95
+    confidence, with the whole document as the reference list and no body.
+    """
+    text = (
+        "Automated Citation Extraction at Scale\n\n"
+        "Abstract\n"
+        "We present a system that constructs a bibliography from scanned documents.\n"
+        "The method is evaluated on twelve thousand records drawn from three archives.\n\n"
+        "Introduction\n"
+        "Citation parsing has been studied for decades in the digital libraries field.\n"
+        "Prior systems relied on hand written rules that generalised poorly in practice.\n"
+    )
+    outcome = characterize_document(text)
+    assert outcome.method is not DetectionMethod.TITLE_PAGE
+    assert outcome.kind is not DocumentKind.BIBLIOGRAPHY
+    assert outcome.bibliography_text == ""
+    assert "We present a system" in outcome.body_text
+
+
+def test_a_contents_line_is_not_a_declaration():
+    """ "Bibliography .......... 89" names a section, it does not declare a kind."""
+    text = (
+        "A Study of Urban Transport Policy\n\n"
+        "TABLE OF CONTENTS\n"
+        "1. Introduction ......... 1\n"
+        "Bibliography .......... 89\n\n"
+        "1. Introduction\n"
+        "Urban transport policy has shifted markedly over the past decade in Europe.\n"
+        "This study examines rail and road investment across three mid sized cities.\n\n"
+        "References\n"
+        "Smith, J. A. (2020). Machine learning. Journal of Bibliometrics, 15(2), 103-115.\n"
+        "Johnson, L. (2019). The future of AI. Tech Press.\n"
+    )
+    outcome = characterize_document(text)
+    assert outcome.kind is DocumentKind.RESEARCH_PAPER
+    assert outcome.method is DetectionMethod.SECTION_HEADER
+    assert "Urban transport policy" in outcome.body_text
+
+
+def test_a_structural_heading_outranks_a_front_matter_keyword():
+    """A heading on its own line is stronger evidence than a keyword."""
+    text = (
+        "Notes toward a bibliography of ceramics research\n\n"
+        + "Ceramic fatigue is poorly understood in polycrystalline samples.\n" * 12
+        + "\nReferences\n"
+        "Smith, J. A. (2020). Ceramics. Journal of Materials, 4(1), 1-9.\n"
+        "Doe, A. B. (2019). More ceramics. Journal of Materials, 3(2), 2-8.\n"
+    )
+    outcome = characterize_document(text)
+    assert outcome.kind is DocumentKind.RESEARCH_PAPER
+    assert outcome.method is DetectionMethod.SECTION_HEADER
+
+
+def test_a_front_matter_declaration_needs_corroboration():
+    """A title alone classifies nothing; the text beneath it must be dense."""
+    text = (
+        "Selected Bibliography\n\n"
+        "This chapter surveys the literature without listing individual entries.\n"
+        "It discusses broad trends in the field and offers a narrative overview.\n"
+        "No formal reference list follows this heading anywhere in the document.\n"
+    )
+    outcome = characterize_document(text)
+    assert outcome.method is not DetectionMethod.TITLE_PAGE
+    assert outcome.kind is not DocumentKind.BIBLIOGRAPHY

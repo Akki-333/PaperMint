@@ -318,6 +318,24 @@ def test_the_summary_describes_the_body_not_the_appendix():
     assert "orthonormal basis" not in result.summary
 
 
+def test_force_prose_overrules_the_classifier():
+    """The reader can overrule a wrong verdict in the other direction.
+
+    force_parse has always let a reader insist a document *is* a bibliography.
+    Without its counterpart, a document wrongly classified as one could not be
+    corrected at all from the interface.
+    """
+    result = PipelineService().process_document(
+        DocumentInput("paper.pdf", make_pdf(PAPER_TEXT), "application/pdf"),
+        PipelineOptions(force_prose=True),
+    )
+
+    assert result.citation_count == 0
+    assert result.document_kind is DocumentKind.NON_ACADEMIC
+    assert result.bibliography_text == ""
+    assert any("read as prose" in warning for warning in result.warnings)
+
+
 def test_a_document_with_no_real_references_says_so():
     """Forcing a prose document to parse must not manufacture citations.
 

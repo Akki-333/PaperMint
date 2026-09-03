@@ -288,6 +288,37 @@ def test_a_trailing_written_out_author_is_still_parsed():
     assert [a.family for a in citation.authors] == ["Smith", "Doe"]
 
 
+MONOGRAPH_ENTRY = """Acker, Helen. The Boy Who Lived With the Bears. Illus. by Ray Cruz.
+Abelard-Schuman. 1968. 136 p.
+A story of a young boy captured by a bear clan in the Iroquois nation."""
+
+
+def test_a_catalogue_entry_reports_the_work_not_the_annotation():
+    """The title must be the book, not the sentence describing it.
+
+    A catalogue entry is a citation, an imprint line and a note, with no blank
+    line between them. The header split only trimmed entries longer than three
+    lines, so this three-line form kept its annotation and the longest-sentence
+    strategy reported the commentary as the title.
+    """
+    citation = parse_citation(MONOGRAPH_ENTRY)
+    assert citation.title == "The Boy Who Lived With the Bears"
+    assert "young boy" not in citation.title
+
+
+def test_a_monograph_reports_its_imprint_and_page_count():
+    """A monograph names its publisher with no keyword and counts pages as 136 p."""
+    citation = parse_citation(MONOGRAPH_ENTRY)
+    assert citation.publisher == "Abelard-Schuman"
+    assert citation.pages == "136"
+    assert citation.year == "1968"
+
+
+def test_the_illustrator_is_not_reported_as_the_publisher():
+    citation = parse_citation(MONOGRAPH_ENTRY)
+    assert "Cruz" not in citation.publisher
+
+
 def test_a_real_reference_passes_the_relevance_gate():
     assert is_bibliographic_entry(parse_citation(NUMBERED_ENTRY))
 
