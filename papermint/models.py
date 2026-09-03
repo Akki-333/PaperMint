@@ -363,6 +363,7 @@ class ExtractionResult(BaseModel):
     """Complete result of processing a document."""
 
     citations: list[Citation] = Field(default_factory=list)
+    discarded: list[Citation] = Field(default_factory=list)
     raw_text: str = ""
     bibliography_text: str = ""
     source_filename: str = ""
@@ -380,6 +381,16 @@ class ExtractionResult(BaseModel):
     def citation_count(self) -> int:
         """Return the number of parsed citations."""
         return len(self.citations)
+
+    @property
+    def discarded_count(self) -> int:
+        """Return the number of segments rejected as non-bibliographic."""
+        return len(self.discarded)
+
+    @property
+    def segment_count(self) -> int:
+        """Return how many segments the bibliography block was split into."""
+        return len(self.citations) + len(self.discarded)
 
     @property
     def has_citations(self) -> bool:

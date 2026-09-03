@@ -39,7 +39,7 @@ from papermint.models import (
     ExtractionResult,
 )
 from papermint.parsers.bibliography_detector import characterize_document
-from papermint.parsers.citation_parser import parse_citation
+from papermint.parsers.citation_parser import is_bibliographic_entry, parse_citation
 from papermint.parsers.citation_splitter import split_citations
 from papermint.parsers.style_detector import detect_style
 from papermint.parsers.summarizer import summarize, summarize_reference_list
@@ -180,15 +180,21 @@ class PipelineService:
 
     def _parse_entries(
         self, bibliography_text: str, source_filename: str
-    ) -> tuple[list[Citation], CitationStyle, float]:
+    ) -> tuple[list[Citation], list[Citation], CitationStyle, float]:
         """Segment and parse a bibliography block.
+
+        Segmentation is structural, so a document whose appendix is numbered or
+        whose body wraps oddly yields segments that are prose rather than
+        references. Each parsed entry is therefore checked for positive
+        evidence of being a citation, and those without it are separated out
+        rather than presented as citations or written into an export.
 
         Args:
             bibliography_text: The isolated bibliography.
             source_filename: Recorded on each citation for batch provenance.
 
         Returns:
-            A ``(citations, style, style_confidence)`` triple.
+            A ``(citations, discarded, style, style_confidence)`` tuple.
 
         Raises:
             ParsingError: If segmentation raises an unexpected failure.
@@ -200,11 +206,12 @@ class PipelineService:
             raise ParsingError(f"The bibliography could not be split into entries: {exc}") from exc
 
         if not segments:
-            return [], CitationStyle.UNKNOWN, 0.0
+            return [], [], CitationStyle.UNKNOWN, 0.0
 
         style, style_confidence = detect_style(segments)
 
         citations: list[Citation] = []
+        discarded: list[Citation] = []
         for segment in segments:
             try:
                 citation = parse_citation(segment, style)
@@ -212,11 +219,22 @@ class PipelineService:
                 # One malformed entry must never discard the whole document.
                 logger.warning("Skipping an unparsable entry (%s): %.80s", exc, segment)
                 continue
-            if citation.raw_text.strip():
-                citation.source_file = source_filename
+            if not citation.raw_text.strip():
+                continue
+            citation.source_file = source_filename
+            if is_bibliographic_entry(citation):
                 citations.append(citation)
+            else:
+                discarded.append(citation)
 
-        return citations, style, style_confidence
+        if discarded:
+            logger.info(
+                "Kept %d of %d segments; %d carried no bibliographic evidence",
+                len(citations),
+                len(segments),
+                len(discarded),
+            )
+        return citations, discarded, style, style_confidence
 
     # -- Public API ---------------------------------------------------------
 
@@ -273,16 +291,31 @@ class PipelineService:
         # -- Stage 3: parse --------------------------------------------------
         self._report(on_progress, PipelineStage.PARSE)
         citations: list[Citation] = []
+        discarded: list[Citation] = []
         style = CitationStyle.UNKNOWN
         style_confidence = 0.0
 
         if outcome.found:
-            citations, style, style_confidence = self._parse_entries(
+            citations, discarded, style, style_confidence = self._parse_entries(
                 outcome.bibliography_text, document.filename
             )
-            if not citations:
+            if not citations and discarded:
+                warnings.append(
+                    f"A block of {len(discarded)} segments was located, but none of them "
+                    "carried an author, a year, a venue or an identifier, so none was "
+                    "treated as a citation. This document does not appear to contain a "
+                    "bibliography."
+                )
+            elif not citations:
                 warnings.append(
                     "A bibliography block was located but no entry could be parsed from it."
+                )
+            elif discarded:
+                warnings.append(
+                    f"{len(discarded)} of {len(citations) + len(discarded)} segments were "
+                    "set aside because they carried no author, year, venue or identifier. "
+                    "They are usually appendix prose or section headings that share the "
+                    "reference list's numbering."
                 )
 
         # -- Stage 4: summarise ---------------------------------------------
@@ -302,6 +335,7 @@ class PipelineService:
 
         result = ExtractionResult(
             citations=citations,
+            discarded=discarded,
             raw_text=text,
             bibliography_text=outcome.bibliography_text,
             source_filename=document.filename,
