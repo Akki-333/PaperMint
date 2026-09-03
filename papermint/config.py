@@ -66,15 +66,24 @@ CROSSREF_MAILTO = "placeholder@example.com"  # Replace with real email for Polit
 BIBLIOGRAPHY_HEADERS: list[str] = [
     "references",
     "bibliography",
+    "annotated bibliography",
+    "selected bibliography",
     "works cited",
     "literature cited",
     "reference list",
     "references and notes",
     "selected references",
     "sources cited",
+    "sources consulted",
     "cited literature",
+    "list of references",
+    "list of books",
+    "reading list",
     "literature",
 ]
+
+#: Maximum lines from the beginning of a document inspected for title-page declarations.
+FRONT_MATTER_MAX_LINES = 120
 
 #: Fraction of trailing lines that must look bibliographic to trigger the
 #: density fallback in :mod:`papermint.parsers.bibliography_detector`.

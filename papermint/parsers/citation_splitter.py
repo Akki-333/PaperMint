@@ -30,8 +30,10 @@ _SURNAME = (
     r"(?:[-\s][A-Z][\w'-]+)?"
 )
 
-#: A line that opens a new entry: "Smith, J.", "O'Brien, Kate", "VAN DYKE, A."
-_AUTHOR_BOUNDARY = re.compile(rf"^{_SURNAME},\s+(?:[A-Z]\.|[A-Z][a-z]+|[A-Z]\b)")
+#: A line that opens a new entry: "Smith, J.", "* Buff, Mary", "O'Brien, Kate"
+_AUTHOR_BOUNDARY = re.compile(
+    rf"^\s*(?:[*•\-\u2013]\s*)?{_SURNAME},\s+(?:[A-Z]\.|[A-Z][a-z]+|[A-Z]\b)"
+)
 
 #: Explicit entry indices at the start of a line, in descending order of
 #: reliability. A bracketed index is almost never anything but a reference
@@ -72,6 +74,7 @@ def _looks_like_citation(text: str) -> bool:
         _YEAR.search(text),
         _DOI.search(text),
         _AUTHOR_INITIAL.search(text),
+        _AUTHOR_BOUNDARY.search(text),
         _BRACKET_INDEX.search(text),
         _LOCATOR.search(text),
     )

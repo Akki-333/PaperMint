@@ -178,3 +178,51 @@ def test_title_extraction_fallback():
     text = "Smith, J. 2020. The impact of climate change on agriculture. Some Publisher."
     cit = parse_citation(text)
     assert cit.title != "", f"Title should not be empty for: {text}"
+
+
+def test_detect_front_matter_annotated_bibliography():
+    """Documents with front matter declaring an annotated bibliography must be recognized autonomously."""
+    from papermint.models import DocumentKind
+    from papermint.parsers.bibliography_detector import characterize_document
+
+    text = (
+        "RESOLUTION TEST CHART\n"
+        "BUREAU OF STANDARDS-1963-A\n\n"
+        "ED 060 699\n"
+        "DOCUMENT RESUME\n"
+        "TITLE An Annotated Bibliography of Young People's Fiction on American Indians.\n"
+        "1972.\n\n"
+        "Acker, Helen. LEE NATONI: YOUNG NAVAJO.\n"
+        "Illus. by Richard Kennedy. 136 p.\n"
+        "Abelard-Schuman. 1968.\n"
+        "Lee Natoni and his sister and mother are happy living in their isolated home.\n\n"
+        "Allen, Henry. VALLEY OF THE BEAR.\n"
+        "Houghton Mifflin Co. 1964. 184 p.\n"
+        "Because Mouse and his crippled grandmother have both been spared in encounters.\n"
+    )
+    outcome = characterize_document(text)
+    assert outcome.kind is DocumentKind.ANNOTATED_BIBLIOGRAPHY
+    assert outcome.found
+    assert outcome.confidence >= 0.9
+
+
+def test_detect_multi_line_part_heading():
+    """Two-line headings like PART TWO\\nAnnotated Bibliography must be recognized."""
+    from papermint.parsers.bibliography_detector import characterize_document
+
+    text = (
+        "Introductory notes and administrative preface.\n\n"
+        "PART TWO\n"
+        "Annotated Bibliography\n\n"
+        "Acker, Helen. LEE NATONI: YOUNG NAVAJO.\n"
+        "Abelard-Schuman. 1968. 136 p.\n"
+        "Lee Natoni and his sister are happy.\n\n"
+        "Buff, Mary. HAH-NEE OF THE CLIFF DWELLERS.\n"
+        "Houghton Mifflin Co. 1956. 68 p.\n"
+        "It is the time of the long drought.\n"
+    )
+    outcome = characterize_document(text)
+    assert outcome.found
+    assert "PART TWO Annotated Bibliography" in outcome.notes[0]
+    assert "Introductory notes" in outcome.body_text
+    assert "Acker, Helen" in outcome.bibliography_text

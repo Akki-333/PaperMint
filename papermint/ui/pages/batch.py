@@ -205,18 +205,7 @@ def render() -> None:
         )
         return
 
-    with st.expander("Options"):
-        force_parse = st.checkbox(
-            "Treat every document as a bibliography",
-            value=False,
-            help=(
-                "Applies to all files in this batch. Use it when the set consists "
-                "of reference lists rather than papers."
-            ),
-            key="pm_batch_force",
-        )
-
-    result = _ensure_result(list(uploaded_files), PipelineOptions(force_parse=force_parse))
+    result = _ensure_result(list(uploaded_files), PipelineOptions())
 
     _render_summary(result)
     st.write("")

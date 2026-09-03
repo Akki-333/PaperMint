@@ -178,10 +178,6 @@ def _render_verdict(result: ExtractionResult, citations: list[Citation]) -> None
             tone="caution",
             details=[
                 "Every segment is listed below so you can check the decision for yourself.",
-                (
-                    "If this really is a reference list, switch on Treat the whole document "
-                    "as a bibliography under Options."
-                ),
             ],
         )
         return
@@ -193,12 +189,6 @@ def _render_verdict(result: ExtractionResult, citations: list[Citation]) -> None
             "so it did not invent any. The document summary and its full text are "
             "below.",
             tone="info",
-            details=[
-                (
-                    "If this document is a reference list without a heading, switch on "
-                    "Treat the whole document as a bibliography under Options."
-                ),
-            ],
         )
         return
 
@@ -492,16 +482,6 @@ def render() -> None:
         return
 
     with st.expander("Options"):
-        force_parse = st.checkbox(
-            "Treat the whole document as a bibliography",
-            value=False,
-            help=(
-                "Skip detection and parse every line as a reference. Use this for "
-                "annotated bibliographies and raw reference lists that carry no "
-                "heading."
-            ),
-            key="pm_force_parse",
-        )
         summary_sentences = st.slider(
             "Summary length",
             min_value=3,
@@ -511,7 +491,7 @@ def render() -> None:
             key="pm_summary_len",
         )
 
-    options = PipelineOptions(force_parse=force_parse, summary_sentences=summary_sentences)
+    options = PipelineOptions(summary_sentences=summary_sentences)
     result = _ensure_result(uploaded_file, options)
     if result is None:
         return

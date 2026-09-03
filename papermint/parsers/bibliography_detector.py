@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from papermint.config import (
     BIBLIOGRAPHY_DENSITY_THRESHOLD,
     BIBLIOGRAPHY_HEADERS,
+    FRONT_MATTER_MAX_LINES,
     REFERENCE_ONLY_COVERAGE,
 )
 from papermint.models import DetectionMethod, DocumentKind
@@ -35,9 +36,19 @@ logger = logging.getLogger(__name__)
 _DOI_PATTERN = re.compile(r"10\.\d{4,9}/[^\s]+")
 _YEAR_PATTERN = re.compile(r"\b(19|20)\d{2}\b")
 _AUTHOR_PATTERN = re.compile(r"[A-Z][a-z]+,?\s+[A-Z]\.")
+_AUTHOR_FULL_PATTERN = re.compile(r"^[A-Z][a-zA-Z\s\-']+,?\s+[A-Z][a-zA-Z\s\-']+")
 _BRACKET_PATTERN = re.compile(r"^\[\d+\]")
 _LOCATOR_PATTERN = re.compile(r"\b(?:vol|no|pp)\.\s*\d+", re.IGNORECASE)
 _ARXIV_PATTERN = re.compile(r"\barXiv:\s*\d{4}\.\d{4,5}", re.IGNORECASE)
+
+_BOOK_IMPRINT = re.compile(
+    r"\b(?:Press|Publishing|Publishers|Books|Verlag|Co\.|Inc\.|Ltd\.)\b", re.IGNORECASE
+)
+_BOOK_PAGINATION = re.compile(r"\b\d{1,4}\s*p(?:p)?\.?\b", re.IGNORECASE)
+_CONTRIBUTOR_ROLE = re.compile(
+    r"\b(?:Illus\.|illustrated|Comp\.|Compiled|Ed\.|Eds\.|Edited|Trans\.|Translated)\s+by\b",
+    re.IGNORECASE,
+)
 
 #: The closing "Journal Abbrev. Volume, Pages (Year)" of a numbered reference.
 #: Recognising it keeps the wrapped second line of an entry from reading as
@@ -51,11 +62,12 @@ _VENUE_PATTERN = re.compile(
 #: rather than the short tail of a wrapped reference.
 _PROSE_WORD_FLOOR = 8
 
-#: A first line that declares the whole document to be a bibliography.
+#: Pattern detecting document title declarations for bibliographies and catalogs.
 _TITLE_PAGE_PATTERN = re.compile(
-    r"^(?:an?\s+|the\s+)?"
-    r"(?:annotated\s+|selected\s+|classified\s+|comprehensive\s+)?"
-    r"(?:bibliography|works\s+cited|reference\s+list)\b",
+    r"(?:^|\b)(?:title\s*[:.-]?\s*)?"
+    r"(?:an?\s+|the\s+)?"
+    r"(?:annotated\s+|selected\s+|classified\s+|comprehensive\s+|curriculum\s+)?"
+    r"(?:bibliography|works\s+cited|reference\s+list|literature\s+cited)\b",
     re.IGNORECASE,
 )
 
@@ -69,17 +81,32 @@ _ANNOTATION_WORD_FLOOR = 40
 def _build_header_pattern() -> re.Pattern[str]:
     """Compile the section-heading regex from the configured keywords.
 
-    Returns:
-        A compiled pattern matching a bibliography heading on its own line.
+    Matches single-line section headers with optional numeric, part or chapter prefixes,
+    such as '7. References', 'PART TWO Annotated Bibliography' or 'References:'.
     """
     headers = "|".join(re.escape(header) for header in BIBLIOGRAPHY_HEADERS)
+    prefix = (
+        r"(?:(?:\d+\.?|(?:part|chapter|section|appendix)\s+"
+        r"(?:one|two|three|four|five|\d+|[ivx]+))\s*[:.-]*)?"
+    )
     return re.compile(
-        rf"^\s*(?:\d+\.?\s+)?(?:{headers})\s*[:.]?\s*$",
+        rf"^\s*{prefix}(?:{headers})\s*[:.]?\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+
+
+def _build_multi_line_header_pattern() -> re.Pattern[str]:
+    """Compile a regex for two-line section headers like 'PART TWO\\nAnnotated Bibliography'."""
+    headers = "|".join(re.escape(header) for header in BIBLIOGRAPHY_HEADERS)
+    return re.compile(
+        rf"^\s*(?:part|chapter|section|appendix)\s+(?:one|two|three|four|five|\d+|[ivx]+)\s*\n"
+        rf"^\s*(?:{headers})\s*[:.]?\s*$",
         re.IGNORECASE | re.MULTILINE,
     )
 
 
 _HEADER_PATTERN = _build_header_pattern()
+_MULTI_LINE_HEADER_PATTERN = _build_multi_line_header_pattern()
 
 
 # ---------------------------------------------------------------------------
@@ -121,9 +148,9 @@ class DetectionOutcome:
 def _citation_signal(line: str) -> bool:
     """Judge whether a single line carries bibliographic structure.
 
-    A DOI, a bracketed index or a volume locator is decisive on its own. A
-    bare year is not, because ordinary prose is full of years; it only counts
-    when paired with an author-initial pattern.
+    A DOI, a bracketed index, a volume locator, book pagination or contributor credit
+    is decisive on its own. Author patterns count when paired with a year, imprint,
+    or title indicators.
 
     Args:
         line: One stripped line of text.
@@ -137,9 +164,18 @@ def _citation_signal(line: str) -> bool:
         return True
     if _ARXIV_PATTERN.search(line) or _VENUE_PATTERN.search(line):
         return True
-    if _LOCATOR_PATTERN.search(line):
+    if _LOCATOR_PATTERN.search(line) or _BOOK_PAGINATION.search(line):
         return True
-    return bool(_YEAR_PATTERN.search(line) and _AUTHOR_PATTERN.search(line))
+    if _CONTRIBUTOR_ROLE.search(line):
+        return True
+    if _BOOK_IMPRINT.search(line) and _YEAR_PATTERN.search(line):
+        return True
+    if _YEAR_PATTERN.search(line) and _AUTHOR_PATTERN.search(line):
+        return True
+    return bool(
+        _AUTHOR_FULL_PATTERN.match(line)
+        and (_YEAR_PATTERN.search(line) or ":" in line or '"' in line or "." in line)
+    )
 
 
 def _is_prose(line: str) -> bool:
@@ -299,12 +335,48 @@ def characterize_document(text: str, force_parse: bool = False) -> DetectionOutc
             notes=["Every line was parsed as a citation because you asked for it."],
         )
 
-    # 2. Title page declares the document to be a bibliography.
-    first_line = next((ln.strip() for ln in text.split("\n") if ln.strip()), "")
-    if first_line and _TITLE_PAGE_PATTERN.match(first_line):
+    # Collect single-line and multi-line section headers
+    header_matches = list(_HEADER_PATTERN.finditer(text))
+    header_matches.extend(list(_MULTI_LINE_HEADER_PATTERN.finditer(text)))
+    header_matches.sort(key=lambda m: m.start())
+
+    # 2. Front-matter inspection: detect if the document declares itself as a bibliography
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+    front_lines = lines[:FRONT_MATTER_MAX_LINES]
+    title_declaration = None
+    for line in front_lines:
+        if _TITLE_PAGE_PATTERN.search(line) and len(line.split()) <= 25:
+            title_declaration = line
+            break
+
+    if title_declaration:
+        decl_lower = title_declaration.lower()
+        is_annotated_title = "annotated" in decl_lower
+        # If there is an explicit section heading separating front-matter from entries,
+        # slice from the section heading.
+        if header_matches:
+            best_match = header_matches[-1]
+            candidate = text[best_match.end() :].strip()
+            heading = best_match.group(0).strip().replace("\n", " ")
+            body = text[: best_match.start()].strip()
+            kind = (
+                DocumentKind.ANNOTATED_BIBLIOGRAPHY
+                if (is_annotated_title or _looks_annotated(candidate))
+                else DocumentKind.BIBLIOGRAPHY
+            )
+            return DetectionOutcome(
+                bibliography_text=candidate,
+                body_text=body,
+                method=DetectionMethod.SECTION_HEADER,
+                kind=kind,
+                confidence=0.95,
+                notes=[f'Identified via front-matter title and section heading "{heading}".'],
+            )
+
+        # Standalone bibliography catalog with no internal section heading
         kind = (
             DocumentKind.ANNOTATED_BIBLIOGRAPHY
-            if _looks_annotated(stripped)
+            if (is_annotated_title or _looks_annotated(stripped))
             else DocumentKind.BIBLIOGRAPHY
         )
         return DetectionOutcome(
@@ -313,15 +385,14 @@ def characterize_document(text: str, force_parse: bool = False) -> DetectionOutc
             method=DetectionMethod.TITLE_PAGE,
             kind=kind,
             confidence=0.95,
-            notes=[f'The document opens with "{first_line[:60]}".'],
+            notes=[f'The document declares in its front matter: "{title_declaration[:80]}".'],
         )
 
-    # 3. An explicit section heading.
-    matches = list(_HEADER_PATTERN.finditer(text))
-    for match in reversed(matches):
+    # 3. An explicit section heading (for research papers).
+    for match in reversed(header_matches):
         candidate = text[match.end() :].strip()
         if candidate:
-            heading = match.group(0).strip()
+            heading = match.group(0).strip().replace("\n", " ")
             body = text[: match.start()].strip()
             coverage = len(candidate) / len(stripped)
             kind = (
