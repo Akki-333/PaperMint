@@ -252,7 +252,7 @@ def tile_grid(tiles: list[tuple[str, str, str, str]]) -> None:
             hint_html = f'<div class="pm-tile-hint">{esc(hint)}{icon("arrow-right", size=13)}</div>'
         cards.append(
             '<div class="pm-tile">'
-            f'<div class="pm-tile-icon">{icon(icon_name, size=18)}</div>'
+            f'<div class="pm-tile-icon">{icon(icon_name, size=20, stroke=1.8)}</div>'
             f'<div class="pm-tile-name">{esc(name)}</div>'
             f'<div class="pm-tile-desc">{esc(description)}</div>'
             f"{hint_html}"

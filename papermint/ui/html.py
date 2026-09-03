@@ -77,7 +77,7 @@ def render(markup: str) -> None:
         markup: The HTML to insert. It is compacted first so that indented
             templates can never be mistaken for a Markdown code block.
     """
-    st.html(compact(markup))
+    st.markdown(compact(markup), unsafe_allow_html=True)
 
 
 def clamp(text: str, limit: int) -> str:

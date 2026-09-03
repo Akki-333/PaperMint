@@ -556,11 +556,13 @@ def _components() -> str:
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px; height: 34px;
-    border-radius: var(--pm-radius-sm);
+    width: 38px; height: 38px;
+    border-radius: var(--pm-radius-md);
     background: var(--pm-fill-accent-08);
+    border: 1px solid var(--pm-fill-accent-24);
     color: var(--pm-color-accent);
     margin-bottom: var(--pm-space-4);
+    box-shadow: 0 0 12px var(--pm-fill-accent-08);
 }
 .pm-tile-name {
     font-size: var(--pm-text-md);
@@ -583,6 +585,71 @@ def _components() -> str:
     gap: var(--pm-space-2);
 }
 
+/* --- Overview narrative panel ---------------------------------------- */
+.pm-overview-panel {
+    background: var(--pm-color-surface);
+    border: 1px solid var(--pm-color-border);
+    border-left: 3px solid var(--pm-color-accent);
+    border-radius: var(--pm-radius-lg);
+    padding: var(--pm-space-6);
+    margin-bottom: var(--pm-space-8);
+}
+.pm-overview-title {
+    font-family: var(--pm-font-text);
+    font-size: var(--pm-text-xl);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--pm-color-text);
+    margin: 0 0 var(--pm-space-3);
+}
+.pm-overview-text {
+    font-family: var(--pm-font-ui);
+    font-size: var(--pm-text-base);
+    line-height: 1.72;
+    color: var(--pm-color-text-muted);
+    margin: 0 0 var(--pm-space-3);
+}
+.pm-overview-text:last-of-type {
+    margin-bottom: 0;
+}
+.pm-overview-pillars {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--pm-space-4);
+    margin-top: var(--pm-space-5);
+    padding-top: var(--pm-space-5);
+    border-top: 1px solid var(--pm-color-border);
+}
+.pm-pillar {
+    display: flex;
+    gap: var(--pm-space-3);
+    align-items: flex-start;
+}
+.pm-pillar-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--pm-radius-sm);
+    background: var(--pm-fill-accent-08);
+    border: 1px solid var(--pm-fill-accent-24);
+    color: var(--pm-color-accent);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.pm-pillar-heading {
+    font-size: var(--pm-text-sm);
+    font-weight: 600;
+    color: var(--pm-color-text);
+    margin-bottom: var(--pm-space-1);
+}
+.pm-pillar-desc {
+    font-size: var(--pm-text-xs);
+    line-height: 1.55;
+    color: var(--pm-color-text-muted);
+}
+
 /* --- Definition rows -------------------------------------------------- */
 .pm-defs { display: grid; gap: var(--pm-space-3); }
 .pm-def {
@@ -598,7 +665,7 @@ def _components() -> str:
 .pm-def-val { color: var(--pm-color-text); }
 
 /* --- Sidebar brand ---------------------------------------------------- */
-.pm-brand { padding: var(--pm-space-2) 0 var(--pm-space-4); }
+.pm-brand { padding: var(--pm-space-3) 0 var(--pm-space-4); }
 .pm-brand-row {
     display: flex;
     align-items: center;
@@ -608,15 +675,16 @@ def _components() -> str:
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px; height: 32px;
-    border-radius: var(--pm-radius-sm);
+    width: 36px; height: 36px;
+    border-radius: var(--pm-radius-md);
     background: var(--pm-color-accent);
     color: var(--pm-color-accent-ink);
+    box-shadow: 0 0 14px var(--pm-fill-accent-24);
 }
 .pm-brand-name {
-    font-size: var(--pm-text-lg);
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: -0.015em;
     color: var(--pm-color-text);
 }
 .pm-brand-tag {

@@ -18,6 +18,8 @@ from papermint.ui.components.primitives import (
     section_header,
     tile_grid,
 )
+from papermint.ui.html import render as render_html
+from papermint.ui.icons import icon
 
 #: What the pipeline does with each category of document.
 _BEHAVIOURS: tuple[tuple[str, str], ...] = (
@@ -86,11 +88,56 @@ def render() -> None:
 
     page_header(
         APP_NAME,
-        "Turn academic documents into structured, exportable bibliographic "
-        "records. Every field is extracted deterministically, and every entry "
-        "reports how much of it could actually be read.",
-        eyebrow="Overview",
+        "A high-precision document intelligence platform engineered for academic "
+        "literature extraction, reference management, and bibliographic data integrity.",
+        eyebrow="Academic Citation Intelligence",
         eyebrow_icon="leaf",
+    )
+
+    render_html(
+        '<div class="pm-overview-panel">'
+        '<div class="pm-overview-title">Context & Core Purpose</div>'
+        '<div class="pm-overview-text">'
+        "Academic literature review is the bedrock of scientific discovery, yet "
+        "scholars, students, and research institutions routinely lose countless hours "
+        "wrestling with malformed citations, inconsistent reference formatting, and "
+        "fragile PDF text extraction. Most automated citation tools either hallucinate "
+        "plausible-looking authors or break down when confronted with real-world complexities "
+        "like annotated bibliographies, multi-column layouts, split linebreaks, and historical catalog formats."
+        "</div>"
+        '<div class="pm-overview-text">'
+        "PaperMint was built to solve this challenge with zero guesswork. Guided by the governing "
+        "principle of <strong>Honesty Over Completeness</strong>, the platform repairs document "
+        "artifacts upstream through automated Unicode ligature and line-split normalization, "
+        "isolates bibliographic boundaries, deterministically extracts up to eight core metadata fields, "
+        "and assigns calibrated confidence scores. When a field is ambiguous, it is left empty and "
+        "marked missing rather than fabricated—giving you 100% confidence when exporting to Zotero, "
+        "Mendeley, Overleaf, or EndNote."
+        "</div>"
+        '<div class="pm-overview-pillars">'
+        '<div class="pm-pillar">'
+        f'<span class="pm-pillar-icon">{icon("check", size=16, stroke=1.8)}</span>'
+        "<div>"
+        '<div class="pm-pillar-heading">Zero Guesswork & Validation</div>'
+        '<div class="pm-pillar-desc">Every candidate field is validated before acceptance. No hallucinated names or fabricated metadata.</div>'
+        "</div>"
+        "</div>"
+        '<div class="pm-pillar">'
+        f'<span class="pm-pillar-icon">{icon("sparkle", size=16, stroke=1.8)}</span>'
+        "<div>"
+        '<div class="pm-pillar-heading">Upstream Text Normalization</div>'
+        '<div class="pm-pillar-desc">Repairs soft hyphens, typographic ligatures, and split words before parsing even begins.</div>'
+        "</div>"
+        "</div>"
+        '<div class="pm-pillar">'
+        f'<span class="pm-pillar-icon">{icon("download", size=16, stroke=1.8)}</span>'
+        "<div>"
+        '<div class="pm-pillar-heading">Universal Interoperability</div>'
+        '<div class="pm-pillar-desc">Instant export to BibTeX, RIS, CSV, Excel, Word, and PDF, with human-in-the-loop inline correction.</div>'
+        "</div>"
+        "</div>"
+        "</div>"
+        "</div>"
     )
 
     section_header("Start here")
