@@ -1,5 +1,7 @@
 """BibTeX exporter module for PaperMint."""
 
+from __future__ import annotations
+
 from papermint.models import Citation
 
 
@@ -16,16 +18,16 @@ def export_bibtex(citations: list[Citation]) -> str:
     for citation in citations:
         entry_type = citation.entry_type.value.lower() if citation.entry_type else "article"
         cite_key = citation.cite_key or "unknown"
-        
+
         # Format authors: Family, Given and Family, Given
         formatted_authors = []
         for author in citation.authors:
             formatted_authors.append(f"{author.family}, {author.given}")
         author_str = " and ".join(formatted_authors)
-        
+
         # Format pages
         pages_str = citation.pages.replace("-", "--") if citation.pages else ""
-        
+
         fields = []
         if author_str:
             fields.append(f"  author  = {{{author_str}}}")
@@ -47,14 +49,14 @@ def export_bibtex(citations: list[Citation]) -> str:
             fields.append(f"  url     = {{{citation.url}}}")
         if citation.publisher:
             fields.append(f"  publisher = {{{citation.publisher}}}")
-        if getattr(citation, 'address', None):
+        if getattr(citation, "address", None):
             fields.append(f"  address = {{{citation.address}}}")
-        if getattr(citation, 'booktitle', None):
+        if getattr(citation, "booktitle", None):
             fields.append(f"  booktitle = {{{citation.booktitle}}}")
-        
+
         entry = f"@{entry_type}{{{cite_key},\n"
         entry += ",\n".join(fields)
         entry += "\n}"
         entries.append(entry)
-        
+
     return "\n\n".join(entries)

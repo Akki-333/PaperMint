@@ -1,5 +1,7 @@
 """CSV and Excel exporter module for PaperMint."""
 
+from __future__ import annotations
+
 import io
 
 import pandas as pd
@@ -9,10 +11,10 @@ from papermint.models import Citation
 
 def _citations_to_dataframe(citations: list[Citation]) -> pd.DataFrame:
     """Convert a list of citations to a pandas DataFrame.
-    
+
     Args:
         citations: List of Citation objects.
-        
+
     Returns:
         A pandas DataFrame with citation data.
     """
@@ -21,23 +23,27 @@ def _citations_to_dataframe(citations: list[Citation]) -> pd.DataFrame:
         if hasattr(citation, "author_string") and citation.author_string:
             author_string = citation.author_string
         elif citation.authors:
-            author_string = "; ".join(author.full_name for author in citation.authors if author.full_name)
+            author_string = "; ".join(
+                author.full_name for author in citation.authors if author.full_name
+            )
         else:
             author_string = ""
-            
-        data.append({
-            "Title": citation.title or "",
-            "Authors": author_string,
-            "Year": citation.year or "",
-            "Journal": citation.journal or "",
-            "Volume": citation.volume or "",
-            "Issue": citation.issue or "",
-            "Pages": citation.pages or "",
-            "DOI": citation.doi or "",
-            "URL": citation.url or "",
-            "Publisher": citation.publisher or "",
-            "Confidence": citation.confidence or 0.0
-        })
+
+        data.append(
+            {
+                "Title": citation.title or "",
+                "Authors": author_string,
+                "Year": citation.year or "",
+                "Journal": citation.journal or "",
+                "Volume": citation.volume or "",
+                "Issue": citation.issue or "",
+                "Pages": citation.pages or "",
+                "DOI": citation.doi or "",
+                "URL": citation.url or "",
+                "Publisher": citation.publisher or "",
+                "Confidence": citation.confidence or 0.0,
+            }
+        )
     return pd.DataFrame(data)
 
 
@@ -65,7 +71,7 @@ def export_excel(citations: list[Citation]) -> io.BytesIO:
     """
     df = _citations_to_dataframe(citations)
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Citations')
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Citations")
     output.seek(0)
     return output
