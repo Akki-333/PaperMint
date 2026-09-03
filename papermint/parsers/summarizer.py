@@ -40,6 +40,12 @@ _ABBREVIATIONS = re.compile(
     re.IGNORECASE,
 )
 
+#: Operators that mark a line as a displayed equation rather than a sentence.
+#: The multiplication sign is deliberately absent: it is visually ambiguous
+#: with the letter x, and the relational operators already catch any line that
+#: carries one.
+_MATH_OPERATOR = re.compile(r"[=<>±÷≈≠≤≥∑∏∫√∂∇⟨⟩]|\^|\\[a-zA-Z]+\{")
+
 #: Words carrying no topical signal, used by the fallback scorer.
 _STOPWORDS = frozenset(
     [
@@ -229,6 +235,35 @@ def _is_reference_line(text: str) -> bool:
     return bool(re.search(r"\bvol\.\s*\d+.*\bpp?\.\s*\d+", text, re.IGNORECASE))
 
 
+def _is_equation_like(text: str) -> bool:
+    """Check whether a line is mathematics rather than a sentence of prose.
+
+    An appendix of a physics or mathematics paper is mostly displayed
+    equations. Scored as prose they win on content-word frequency, because a
+    symbol repeated across a derivation looks exactly like a keyword, and the
+    summary then reads as a string of fragments rather than the document's
+    argument.
+
+    Args:
+        text: One line of text.
+
+    Returns:
+        True when the line should be excluded from the summary input.
+    """
+    stripped = text.strip()
+    if len(stripped) < 12:
+        return True
+
+    alphabetic = sum(1 for character in stripped if character.isalpha())
+    if alphabetic < len(stripped) * 0.6:
+        return True
+
+    words = re.findall(r"[A-Za-z]{3,}", stripped)
+    if len(words) < 3:
+        return True
+    return bool(_MATH_OPERATOR.search(stripped) and len(words) < 6)
+
+
 def _clean_for_summary(text: str) -> str:
     """Remove reference lines and structural noise before summarising.
 
@@ -241,7 +276,7 @@ def _clean_for_summary(text: str) -> str:
     clean_lines = [
         line.strip()
         for line in text.split("\n")
-        if not _is_reference_line(line) and len(line.strip()) > 20
+        if not _is_reference_line(line) and not _is_equation_like(line)
     ]
     return " ".join(clean_lines)
 
@@ -313,16 +348,22 @@ def _score_sentences(tokenised: list[list[str]], raw_sentences: list[str]) -> di
         score = sum(frequencies[word] / peak for word in words) / (len(words) + 1)
 
         # An abstract opens a paper and a conclusion closes it; both carry the
-        # document's thesis more reliably than the middle does.
+        # document's thesis more reliably than the middle does. The opening is
+        # weighted highest because it states what the document is *about*,
+        # which is what a reader wants from a summary.
         position = index / total
-        if position < 0.2 or position > 0.8:
-            score *= 1.3
+        if position < 0.15:
+            score *= 1.5
+        elif position > 0.85:
+            score *= 1.2
 
         raw = raw_sentences[index]
         if len(raw.split()) < 6:
             score *= 0.3  # headings and captions
         if _is_reference_line(raw):
             score *= 0.1
+        if _is_equation_like(raw):
+            score *= 0.1  # a derivation is not the document's argument
 
         scores[index] = score
     return scores
