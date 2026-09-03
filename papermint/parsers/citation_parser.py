@@ -123,6 +123,28 @@ _ABBREV_END = re.compile(
     re.IGNORECASE,
 )
 
+#: "136 p." — the monograph page count, written after the number rather than
+#: before it as "pp. 136".
+_MONOGRAPH_PAGES = re.compile(r"\b(\d{1,4})\s*pp?\.?(?=\s|$)", re.IGNORECASE)
+
+#: A contributor credit, which marks a line as part of a catalogue entry.
+_CONTRIBUTOR = re.compile(
+    r"\b(?:Illus\.|Comp\.|Ed\.|Eds\.|Trans\.|Edited|Compiled|Translated)\s+by\b",
+    re.IGNORECASE,
+)
+
+#: "Abelard-Schuman. 1968." — the imprint immediately before the year, which is
+#: how a monograph names its publisher when no keyword such as "Press" appears.
+#: A full stop is deliberately excluded from the name tokens: with it, the run
+#: spanned the preceding sentence and "Illus. by Ray Cruz. Abelard-Schuman."
+#: reported the illustrator as the publisher.
+_IMPRINT_BEFORE_YEAR = re.compile(
+    r"([A-Z][\w&'-]*(?:[\s-][A-Z][\w&'-]*){0,3})\.\s*(?:19|20)\d{2}\b"
+)
+
+#: Words on a line, at or above which it may be annotation prose.
+_ANNOTATION_LINE_WORDS = 8
+
 #: Volume, issue and page labels.
 _VOLUME_LABEL = re.compile(r"\bvol(?:ume)?\.?\s*(\d{1,4})", re.IGNORECASE)
 _ISSUE_LABEL = re.compile(r"\b(?:no|iss(?:ue)?)\.?\s*(\d{1,4})", re.IGNORECASE)
@@ -468,10 +490,16 @@ def _extract_title(
         if not re.fullmatch(r"[A-Z]+\s+(?:CO|INC|LTD|PRESS|PUBLISHING)", shout):
             candidates.append(shout)
 
-    # 7. Fallback: the longest sentence after the authors. Segmentation is
+    # 7. The monograph form: "Surname, Given. Title. Imprint. Year. NNN p."
+    #    The title is the sentence directly after the author list, not the
+    #    longest one, which in a catalogue entry is the annotation.
+    sentences = [s for s in _safe_sentences(remainder) if len(s) > 10]
+    if sentences:
+        candidates.append(sentences[0])
+
+    # 8. Fallback: the longest sentence after the authors. Segmentation is
     #    abbreviation-aware, so it can no longer cut through a name or a
     #    journal abbreviation.
-    sentences = [s for s in _safe_sentences(remainder) if len(s) > 10]
     if sentences:
         candidates.append(max(sentences, key=len))
 
@@ -594,6 +622,12 @@ def _extract_volume_issue_pages(
         if pages_match:
             pages = pages_match.group(1).replace(" ", "")
 
+    if not pages:
+        # A monograph states a page count, not a range: "136 p."
+        monograph = _MONOGRAPH_PAGES.search(masked)
+        if monograph:
+            pages = monograph.group(1)
+
     if not volume or not issue:
         year_free = _YEAR_PAREN.sub(" ", masked)
         combo = _VOLUME_ISSUE_COMBO.search(year_free)
@@ -641,6 +675,9 @@ def _extract_publisher(text: str, *, title: str = "") -> str:
             r"Publishers|Publications|Books|Verlag))"
         ),
         r"([A-Z][A-Za-z&.\s-]{2,40}?(?:Co\.|Inc\.|Ltd\.))",
+        # A monograph names its imprint immediately before the year and often
+        # carries no keyword at all: "Abelard-Schuman. 1968."
+        _IMPRINT_BEFORE_YEAR.pattern,
     )
 
     for pattern in patterns:
@@ -690,13 +727,39 @@ def _detect_entry_type(text: str, citation: Citation | None = None) -> EntryType
     return EntryType.MISC
 
 
+def _is_annotation_line(line: str) -> bool:
+    """Judge whether a line is commentary rather than part of the citation.
+
+    A catalogue entry is a citation followed by a sentence or two about the
+    work, with no blank line between them, so the boundary can only be found by
+    content. An annotation reads as a sentence and carries none of the markers
+    a citation line does.
+
+    Args:
+        line: One line of the entry.
+
+    Returns:
+        True when the line is annotation prose.
+    """
+    stripped = line.strip()
+    if len(stripped.split()) < _ANNOTATION_LINE_WORDS:
+        return False
+    if _YEAR_BARE.search(stripped) or _DOI.search(stripped) or _ARXIV.search(stripped):
+        return False
+    if _CONTRIBUTOR.search(stripped) or _MONOGRAPH_PAGES.search(stripped):
+        return False
+    if any(word in stripped.lower() for word in _PUBLISHER_WORDS):
+        return False
+    return not _INVERTED_UNIT.match(stripped)
+
+
 def _split_header(text: str) -> str:
     """Isolate the bibliographic header from any annotation prose.
 
     In an annotated bibliography each entry is a citation followed by one or
-    more descriptive paragraphs. Parsing the whole block would let a quoted
-    phrase inside the annotation win the title strategy, so only the leading
-    block is used for field extraction.
+    more descriptive paragraphs. Parsing the whole block would let a phrase
+    inside the annotation win the title strategy, so only the leading block is
+    used for field extraction.
 
     Args:
         text: The full entry, header plus annotation.
@@ -707,12 +770,22 @@ def _split_header(text: str) -> str:
     blocks = _BLANK_LINE.split(text.strip())
     header = blocks[0] if blocks else text
 
-    if len(blocks) == 1:
-        lines = [ln for ln in header.split("\n") if ln.strip()]
-        if len(lines) > 3:
-            tail_words = len(" ".join(lines[3:]).split())
-            if tail_words >= 40:
-                return "\n".join(lines[:3])
+    lines = [ln for ln in header.split("\n") if ln.strip()]
+    if len(lines) < 2:
+        return header
+
+    # Walk back over trailing commentary. The previous rule only trimmed an
+    # entry of more than three lines, so the common three-line catalogue form
+    # -- citation, imprint, annotation -- kept its annotation, and the title
+    # extractor reported the commentary as the title of the work.
+    end = len(lines)
+    while end > 1 and _is_annotation_line(lines[end - 1]):
+        end -= 1
+    if end < len(lines):
+        return "\n".join(lines[:end])
+
+    if len(lines) > 3 and len(" ".join(lines[3:]).split()) >= 40:
+        return "\n".join(lines[:3])
     return header
 
 
