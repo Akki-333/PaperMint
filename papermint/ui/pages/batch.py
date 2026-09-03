@@ -1,141 +1,235 @@
-"""Batch processing page for the Streamlit UI."""
+"""The batch processing page.
+
+Several documents are handed to the pipeline in one call. A failure in any one
+file is recorded against that file and the run continues, so a single corrupt
+PDF cannot discard an entire literature review.
+
+Results are cached against a digest of the uploaded set, so browsing the
+per-file accordions does not reprocess anything.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
 
 import streamlit as st
 
-from papermint.config import IMAGE_MIME_TYPES, PDF_MIME_TYPE
-from papermint.extractors import DocxExtractor, ImageExtractor, PdfExtractor, PptxExtractor
-from papermint.models import CitationStyle
-from papermint.parsers.bibliography_detector import detect_bibliography_section
-from papermint.parsers.citation_parser import parse_citation
-from papermint.parsers.citation_splitter import split_citations
-from papermint.parsers.style_detector import detect_style
-from papermint.ui.components.citation_card import render_citation_card
+from papermint.models import BatchResult
+from papermint.pipeline import DocumentInput, PipelineOptions, PipelineService
+from papermint.ui.components.citation_card import render_citation_list
 from papermint.ui.components.export_panel import render_export_panel
-from papermint.ui.components.file_uploader import render_file_uploader
+from papermint.ui.components.file_uploader import (
+    read_upload,
+    render_file_uploader,
+    upload_signature,
+)
+from papermint.ui.components.primitives import (
+    Stat,
+    empty_state,
+    notice,
+    page_header,
+    section_header,
+    stat_row,
+)
+
+logger = logging.getLogger(__name__)
+
+_SIGNATURE_KEY = "pm_batch_signature"
+_RESULT_KEY = "pm_batch_result"
+
+
+def _batch_signature(files: list[Any], force_parse: bool) -> str:
+    """Build a cache key covering every uploaded file and the options.
+
+    Args:
+        files: The uploaded files.
+        force_parse: The bibliography override.
+
+    Returns:
+        A digest identifying this batch.
+    """
+    return "|".join(upload_signature(f, force_parse) for f in files)
+
+
+def _run_batch(files: list[Any], options: PipelineOptions) -> BatchResult:
+    """Process every uploaded file, reporting progress as it goes.
+
+    Args:
+        files: The uploaded files.
+        options: The processing options applied to all of them.
+
+    Returns:
+        The aggregated batch result.
+    """
+    documents = [
+        DocumentInput(filename=f.name, data=read_upload(f), mime_type=f.type or "") for f in files
+    ]
+
+    progress = st.progress(0.0, text="Starting…")
+
+    def report(index: int, total: int, filename: str) -> None:
+        progress.progress(index / total, text=f"Reading {filename} ({index + 1} of {total})")
+
+    result = PipelineService().process_batch(documents, options, on_file=report)
+    progress.empty()
+    return result
+
+
+def _ensure_result(files: list[Any], options: PipelineOptions) -> BatchResult:
+    """Return the cached batch result, running the batch if needed.
+
+    Args:
+        files: The uploaded files.
+        options: The processing options.
+
+    Returns:
+        The batch result.
+    """
+    signature = _batch_signature(files, options.force_parse)
+    if st.session_state.get(_SIGNATURE_KEY) == signature:
+        return st.session_state[_RESULT_KEY]
+
+    result = _run_batch(files, options)
+    st.session_state[_SIGNATURE_KEY] = signature
+    st.session_state[_RESULT_KEY] = result
+    return result
+
+
+def _render_summary(result: BatchResult) -> None:
+    """Render the headline numbers for the run.
+
+    Args:
+        result: The aggregated batch result.
+    """
+    if result.error_count:
+        notice(
+            f"{result.success_count} of {result.file_count} files processed",
+            f"{result.error_count} could not be read. Every other file completed "
+            "normally and its references are included below.",
+            tone="caution",
+        )
+    else:
+        notice(
+            f"All {result.file_count} files processed",
+            f"{result.citation_count} references collected in "
+            f"{result.duration_ms / 1000:.1f} seconds.",
+            tone="positive",
+        )
+
+    flagged = sum(1 for c in result.citations if c.needs_review)
+    stat_row(
+        [
+            Stat(
+                "Files",
+                str(result.file_count),
+                f"{result.error_count} failed",
+                "layers",
+            ),
+            Stat(
+                "References",
+                str(result.citation_count),
+                f"{flagged} need review" if flagged else "All complete",
+                "library",
+            ),
+            Stat(
+                "Field coverage",
+                f"{result.average_confidence:.0%}",
+                "Mean across the run",
+                "check",
+            ),
+            Stat(
+                "Elapsed",
+                f"{result.duration_ms / 1000:.1f}s",
+                f"{result.duration_ms // max(1, result.file_count)} ms per file",
+                "clock",
+            ),
+        ]
+    )
+
+
+def _render_files(result: BatchResult) -> None:
+    """Render one expandable panel per processed file.
+
+    Args:
+        result: The aggregated batch result.
+    """
+    section_header("Results by file")
+
+    for position, entry in enumerate(result.files):
+        if not entry.succeeded:
+            label = f"{entry.filename} — could not be read"
+        elif entry.citation_count:
+            label = f"{entry.filename} — {entry.citation_count} references"
+        else:
+            label = f"{entry.filename} — no bibliography"
+
+        with st.expander(label):
+            if not entry.succeeded:
+                notice("This file was skipped", entry.error, tone="critical")
+                continue
+
+            document = entry.result
+            if document is None or not document.citations:
+                detail = ""
+                if document is not None:
+                    detail = f"{document.document_kind.label} · {document.detection_method.label}"
+                notice("No references in this file", detail, tone="info")
+                continue
+
+            st.caption(
+                f"{document.document_kind.label} · {document.detected_style.label} · "
+                f"{document.detection_method.label}"
+            )
+            render_citation_list(document.citations, scope=f"batch{position}")
 
 
 def render() -> None:
     """Render the batch processing page."""
-    # Hero header
-    st.markdown("""
-    <div class="hero-section">
-        <div class="hero-title">Batch Processing</div>
-        <div class="hero-subtitle">Upload multiple documents to extract citations in bulk</div>
-    </div>
-    """, unsafe_allow_html=True)
+    page_header(
+        "Batch processing",
+        "Process a whole reading list at once and export one merged "
+        "bibliography. Files that cannot be read are reported individually "
+        "and never abort the run.",
+        eyebrow="Batch",
+        eyebrow_icon="layers",
+    )
 
     uploaded_files = render_file_uploader(key="batch_upload", accept_multiple=True)
 
-    force_parse = False
-    if uploaded_files:
-        with st.expander("⚙️ Advanced Options", expanded=False):
-            force_parse = st.checkbox(
-                "Treat entire document as a bibliography (apply to all files)",
-                value=False,
-                help="Bypass detection heuristics and force parse the entire text. Useful for annotated bibliographies or raw reference lists."
-            )
-            
-        st.markdown(f"**📁 Processing {len(uploaded_files)} file{'s' if len(uploaded_files) != 1 else ''}...**")
+    if not uploaded_files:
+        empty_state(
+            "No files selected",
+            "Add several documents above to build a combined bibliography.",
+            icon_name="layers",
+        )
+        return
 
-        progress_bar = st.progress(0)
-        all_citations = []
-        file_results = []
+    with st.expander("Options"):
+        force_parse = st.checkbox(
+            "Treat every document as a bibliography",
+            value=False,
+            help=(
+                "Applies to all files in this batch. Use it when the set consists "
+                "of reference lists rather than papers."
+            ),
+            key="pm_batch_force",
+        )
 
-        for i, file in enumerate(uploaded_files):
-            try:
-                file_type = file.type
-                extractor = None
+    result = _ensure_result(list(uploaded_files), PipelineOptions(force_parse=force_parse))
 
-                if file_type == PDF_MIME_TYPE:
-                    extractor = PdfExtractor()
-                elif file_type in IMAGE_MIME_TYPES:
-                    extractor = ImageExtractor()
-                elif "wordprocessingml" in file_type:
-                    extractor = DocxExtractor()
-                elif "presentationml" in file_type:
-                    extractor = PptxExtractor()
-                else:
-                    st.warning(f"Skipping unsupported file: {file.name}")
-                    continue
+    _render_summary(result)
+    st.write("")
+    _render_files(result)
 
-                raw_text = extractor.extract_text(file.read())
-                if not raw_text:
-                    file_results.append((file.name, [], "No text extracted"))
-                    continue
-
-                bib_text = detect_bibliography_section(raw_text, force_parse=force_parse)
-                
-                file_citations = []
-                detected_style = CitationStyle.UNKNOWN
-                
-                if bib_text:
-                    raw_citations = split_citations(bib_text)
-                    if raw_citations:
-                        detected_style, _ = detect_style(raw_citations)
-
-                    for raw_cit in raw_citations:
-                        parsed = parse_citation(raw_cit, detected_style)
-                        if parsed:
-                            file_citations.append(parsed)
-                else:
-                    file_results.append((file.name, [], "No bibliography detected"))
-                    progress_bar.progress((i + 1) / len(uploaded_files))
-                    continue
-
-                all_citations.extend(file_citations)
-                file_results.append((file.name, file_citations, None))
-
-            except Exception as e:
-                file_results.append((file.name, [], str(e)))
-
-            progress_bar.progress((i + 1) / len(uploaded_files))
-
-        # Summary metrics
-        st.success(f"✨ Batch processing complete! Found **{len(all_citations)}** total citations across **{len(uploaded_files)}** files.")
-
-        m1, m2, m3 = st.columns(3)
-        with m1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-value">{len(uploaded_files)}</div>
-                <div class="metric-label">Files Processed</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with m2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-value">{len(all_citations)}</div>
-                <div class="metric-label">Total Citations</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with m3:
-            errors = sum(1 for _, _, err in file_results if err)
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-value">{"✅" if errors == 0 else errors}</div>
-                <div class="metric-label">{"All Clear" if errors == 0 else "Errors"}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
+    if result.citations:
         st.divider()
+        render_export_panel(
+            result.citations,
+            key_prefix="batch",
+            default_name="merged_bibliography",
+            title="Merged export",
+        )
 
-        # Individual file results
-        st.markdown("### 📄 Results by File")
 
-        for fname, citations, error in file_results:
-            count_label = f"{len(citations)} citation{'s' if len(citations) != 1 else ''}" if not error else "⚠️ Error"
-
-            with st.expander(f"📄 **{fname}** — {count_label}"):
-                if error:
-                    st.error(f"Error processing this file: {error}")
-                elif not citations:
-                    st.info("No citations found in this document.")
-                else:
-                    for j, c in enumerate(citations, 1):
-                        render_citation_card(c, index=j)
-
-        # Bulk export
-        if all_citations:
-            st.divider()
-            st.markdown("### 📥 Bulk Export")
-            render_export_panel(all_citations, key_prefix="batch")
+__all__ = ["render"]

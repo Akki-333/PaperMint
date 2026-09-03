@@ -1,78 +1,148 @@
-"""Home/Dashboard page for the Streamlit UI."""
+"""The dashboard page.
+
+The home page answers three questions before a reader uploads anything: what
+this tool does, what it will do with the particular document they have, and
+where to go next. The third is answered with real navigation links rather than
+an instruction to look at the sidebar.
+"""
+
+from __future__ import annotations
 
 import streamlit as st
-from papermint.config import APP_NAME, APP_DESCRIPTION
+
+from papermint.config import APP_NAME
+from papermint.pipeline import accepted_formats
+from papermint.ui.components.primitives import (
+    definition_list,
+    page_header,
+    section_header,
+    tile_grid,
+)
+
+#: What the pipeline does with each category of document.
+_BEHAVIOURS: tuple[tuple[str, str], ...] = (
+    (
+        "Research paper",
+        (
+            "Isolates the references section, detects the citation style, and parses "
+            "every entry into structured fields."
+        ),
+    ),
+    (
+        "Annotated bibliography",
+        (
+            "Separates each citation header from the annotation paragraphs beneath it, "
+            "so quoted phrases in the commentary never become the title."
+        ),
+    ),
+    (
+        "Reference list with no heading",
+        (
+            "Locates the reference block by citation density, working backwards from "
+            "the end of the document."
+        ),
+    ),
+    (
+        "General document",
+        (
+            "Reports that no bibliography exists and produces a summary instead. No "
+            "citations are invented."
+        ),
+    ),
+)
+
+#: What the interface guarantees about its own output.
+_PRINCIPLES: tuple[tuple[str, str], ...] = (
+    (
+        "Nothing is guessed",
+        (
+            "A field that cannot be read confidently is left empty and listed as "
+            "missing, rather than filled with a plausible fragment."
+        ),
+    ),
+    (
+        "Every entry is scored",
+        (
+            "Each reference carries a field-coverage score, so an incomplete parse is "
+            "visible at a glance instead of hiding among good ones."
+        ),
+    ),
+    (
+        "Corrections are yours to make",
+        (
+            "Any field can be edited inline before export, and the score updates to "
+            "match what you entered."
+        ),
+    ),
+)
+
 
 def render() -> None:
     """Render the home dashboard page."""
-    
-    # Hero section with premium styling
-    st.markdown(f"""
-    <div style="text-align: center; padding: 60px 20px 40px; margin-bottom: 20px;">
-        <div style="font-size: 3.5em; margin-bottom: 20px;">🌿</div>
-        <div class="hero-title" style="font-size: 3.5em;">Welcome to {APP_NAME}</div>
-        <div class="hero-subtitle" style="font-size: 1.2em; max-width: 600px; margin: 0 auto 30px;">
-            Your intelligent assistant for extracting, parsing, and managing academic citations from any document format.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Quick Actions
-    st.markdown("### ⚡ Quick Actions")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("""
-        <div class="metric-card" style="padding: 30px 20px;">
-            <div style="font-size: 2.5em; margin-bottom: 10px;">📄</div>
-            <div style="font-size: 1.2em; font-weight: 600; color: #F1F5F9; margin-bottom: 8px;">Document Analyzer</div>
-            <div style="color: #94A3B8; font-size: 0.9em; line-height: 1.5; margin-bottom: 20px;">
-                Extract citations and generate an AI summary from a single PDF, Word, or Image file.
-            </div>
-            <div style="color: #34D399; font-weight: 600; font-size: 0.9em;">Use the sidebar →</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with col2:
-        st.markdown("""
-        <div class="metric-card" style="padding: 30px 20px;">
-            <div style="font-size: 2.5em; margin-bottom: 10px;">📁</div>
-            <div style="font-size: 1.2em; font-weight: 600; color: #F1F5F9; margin-bottom: 8px;">Batch Processing</div>
-            <div style="color: #94A3B8; font-size: 0.9em; line-height: 1.5; margin-bottom: 20px;">
-                Process dozens of papers at once and export a unified master bibliography.
-            </div>
-            <div style="color: #34D399; font-weight: 600; font-size: 0.9em;">Use the sidebar →</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with col3:
-        st.markdown("""
-        <div class="metric-card" style="padding: 30px 20px;">
-            <div style="font-size: 2.5em; margin-bottom: 10px;">🔍</div>
-            <div style="font-size: 1.2em; font-weight: 600; color: #F1F5F9; margin-bottom: 8px;">DOI Enrichment</div>
-            <div style="color: #94A3B8; font-size: 0.9em; line-height: 1.5; margin-bottom: 20px;">
-                Lookup a specific DOI to instantly fetch rich, accurate metadata from CrossRef.
-            </div>
-            <div style="color: #34D399; font-weight: 600; font-size: 0.9em;">Use the sidebar →</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    st.divider()
-    
-    # Document types
-    st.markdown("### 📚 Supported Document Types")
-    st.markdown("""
-    <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.4); border-radius: 12px; padding: 24px; color: #CBD5E1; margin-top: 16px;">
-        <div style="margin-bottom: 16px;"><strong>PaperMint is optimized for:</strong></div>
-        <ul style="line-height: 1.8; margin-bottom: 20px;">
-            <li>✅ Research Papers & Journal Articles</li>
-            <li>✅ Academic Textbooks</li>
-            <li>✅ Thesis & Dissertation Documents</li>
-            <li>✅ Documents with explicit "References" or "Bibliography" sections</li>
-        </ul>
-        <div style="color: #94A3B8; font-size: 0.9em; border-top: 1px solid rgba(51, 65, 85, 0.4); padding-top: 16px;">
-            <em>Note: General documents, stories, or policy briefs (e.g. without references sections) will yield a Document Summary but will automatically skip citation extraction.</em>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Imported here rather than at module scope: navigation builds the page
+    # objects from this module's render function, so a top-level import would
+    # be circular.
+    from papermint.ui.navigation import page
+
+    page_header(
+        APP_NAME,
+        "Turn academic documents into structured, exportable bibliographic "
+        "records. Every field is extracted deterministically, and every entry "
+        "reports how much of it could actually be read.",
+        eyebrow="Overview",
+        eyebrow_icon="leaf",
+    )
+
+    section_header("Start here")
+    tile_grid(
+        [
+            (
+                "document",
+                "Document analyzer",
+                (
+                    "Extract and correct the references from one paper, thesis or "
+                    "bibliography, then export them."
+                ),
+                "",
+            ),
+            (
+                "layers",
+                "Batch processing",
+                (
+                    "Run a whole reading list at once and export a single merged "
+                    "bibliography for your reference manager."
+                ),
+                "",
+            ),
+            (
+                "search",
+                "DOI lookup",
+                (
+                    "Resolve an identifier against CrossRef for publisher-supplied "
+                    "metadata at full confidence."
+                ),
+                "",
+            ),
+        ]
+    )
+
+    st.write("")
+    analyze_col, batch_col, doi_col = st.columns(3)
+    with analyze_col:
+        st.page_link(page("extract"), label="Open the analyzer")
+    with batch_col:
+        st.page_link(page("batch"), label="Open batch processing")
+    with doi_col:
+        st.page_link(page("doi"), label="Open DOI lookup")
+
+    section_header(
+        "What happens to your document",
+        f"Accepted formats: {' · '.join(accepted_formats())}",
+    )
+    definition_list(list(_BEHAVIOURS))
+
+    section_header("How results are reported")
+    definition_list(list(_PRINCIPLES))
+
+
+__all__ = ["render"]
