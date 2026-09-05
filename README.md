@@ -52,13 +52,15 @@ empty, which the interface renders honestly as *missing*.
 |:---|:---|
 | **Reads five formats** | PDF, PNG and JPEG through OCR, Word, PowerPoint |
 | **Repairs the text first** | Folds ligatures, rejoins words split across a line break, unifies six dash characters, strips page numbers and running headers |
-| **Finds the bibliography four ways** | A references heading, a title page that declares itself, a backwards scan for citation density, or your explicit override |
-| **Recognises four styles** | APA, MLA, IEEE and Chicago, each with a confidence score |
+| **Finds every bibliography** | Not just the last References heading: a file with a list per chapter, separate primary and secondary sources, or a further-reading list after the references yields all of them. An appendix or index between two lists stays in the body |
+| **Reads and writes four styles** | APA, MLA, IEEE and Chicago are recognised on the way in, with a confidence score, and rendered on the way out as a finished reference list |
 | **Validates every field** | A candidate that is really a page range, an author list or a publisher is rejected rather than shown as a title |
 | **Scores what it found** | Every entry reports field coverage; anything below 50% is flagged for review |
 | **Lets you fix it** | Inline editor on every card; the score updates to match what you entered |
 | **Invents nothing** | A document with no bibliography produces no citations, and says so |
 | **Exports six formats** | BibTeX, RIS, CSV, Excel, Word, PDF |
+| **Explains the styles** | Each style's principle, element order and punctuation, with MLA's nine core elements set out in full |
+| **Keeps your place** | Moving between pages never discards your document, your filters or your corrections |
 | **Runs headless** | The same engine works from a terminal with no Streamlit |
 
 ---
@@ -133,8 +135,15 @@ references, correct any of them inline, then export.
 corrupt PDF is reported against itself instead of aborting the run. Export one
 merged bibliography.
 
-**DOI lookup.** Paste an identifier, with or without a `https://doi.org/`
-prefix, and get publisher-supplied metadata from CrossRef at full confidence.
+**Style studio.** Takes the references you just extracted, or one you paste,
+and sets them as a finished reference list in APA, MLA, IEEE or Chicago, with
+the same entry shown four ways for comparison. Beside it is an account of what
+that style is for and how an entry is built. Nothing is invented: an element
+your source never supplied is left out and named.
+
+Nothing on any page is discarded when you navigate away. Your document, your
+search, your sort order and your corrections are all still there when you come
+back.
 
 ---
 
@@ -177,8 +186,12 @@ Strategies run in descending order of reliability:
 
 1. **Force-parse** from the reader — the whole document is the bibliography.
 2. **The first line declares it** a bibliography.
-3. **A references heading** on a line of its own — the **last** match wins, so a
-   table of contents entry cannot.
+3. **References headings** on lines of their own. Every heading opens a candidate
+   block, bounded below by the next heading of any kind, including an appendix,
+   index or glossary heading, and trimmed at any sustained run of narrative
+   prose. The block under the **last** heading is kept on the strength of the
+   heading alone, so a table of contents entry still cannot win; every earlier
+   block must be dense enough to read as references before it joins them.
 4. **A backwards density scan** from the end of the document, tolerating up to
    four consecutive continuation lines, stopping at the first sustained run of
    prose. The selected block must itself pass the density check.
@@ -210,7 +223,7 @@ its own citations read back to it.
 
 ---
 
-## The seven workflows
+## The eight workflows
 
 Every document takes one of these branches, and the branch taken is always shown
 to the reader with its reasoning.
@@ -222,8 +235,9 @@ to the reader with its reasoning.
 | **3** | **Reference list with no heading** | Density scan walks backwards from the end to the block boundary, so the closing paragraphs of the body are not parsed as citations; method reported as "Detected by citation density" | `tests/test_parsers.py` |
 | **4** | **General document** — no bibliography at all | Detection returns non-academic; the parse stage is skipped; the References tab and export panel are hidden; a notice explains that no references were found and none were invented | `test_pipeline_invents_no_citations_for_prose` |
 | **5** | **Batch processing** | Each file runs the full pipeline; a failure is caught, recorded against that file with its error kind, and the run continues; results cached against a digest of the whole set | `test_batch_isolates_a_failing_file`, `test_batch_reports_progress` |
-| **6** | **DOI lookup** | `normalize_doi()` strips the prefix; CrossRef queried through `habanero`; an absent DOI returns `None`, an unreachable CrossRef raises `CrossRefNetworkError`, and the two produce different notices; the record maps onto the same `Citation` model at full confidence | `tests/test_enrichment.py` |
-| **7** | **Review and correction** | Entries below 50% are flagged and filterable; every card has an inline editor for all eight fields; on save the citation is rescored by `score_citation()`, marked edited, and written back at its original position so it survives sorting, filtering and pagination; every export reads the corrected list | `test_edited_authors_round_trip_in_either_order`, `test_confidence_can_be_rescored_after_an_edit` |
+| **6** | **Several bibliographies in one file** | Every heading opens a candidate block; the last is kept on the heading alone, earlier ones must be dense enough to read as references, and an appendix or index between them stays in the body | `test_every_reference_block_is_collected_not_only_the_last`, `test_an_appendix_between_two_lists_stays_in_the_body` |
+| **7** | **Formatting for submission** | The analyzer's citations are rendered as a finished list in the chosen style, alphabetised or numbered as that style requires; an element the source never supplied is omitted and named rather than invented | `tests/test_formatters.py` |
+| **8** | **Review and correction** | Entries below 50% are flagged and filterable; every card has an inline editor for all eight fields; on save the citation is rescored by `score_citation()`, marked edited, and written back at its original position so it survives sorting, filtering and pagination; every export reads the corrected list | `test_edited_authors_round_trip_in_either_order`, `test_confidence_can_be_rescored_after_an_edit` |
 
 ---
 
@@ -239,7 +253,8 @@ ORCHESTRATION   papermint/pipeline.py             PipelineService
       │
       ▼
 DOMAIN          extractors/  parsers/             pure Python, headless
-                enrichment/  exporters/
+                formatters/  exporters/
+                enrichment/
       │
       ▼
 DATA MODEL      models.py  errors.py  config.py
@@ -247,8 +262,8 @@ DATA MODEL      models.py  errors.py  config.py
 
 ### The rules, and the test that enforces each one
 
-`tests/test_architecture.py` parses every module with `ast` and contributes 223
-of the 345 tests. Break a rule and the build names the file and the line.
+`tests/test_architecture.py` parses every module with `ast` and contributes 237
+of the 428 tests. Break a rule and the build names the file and the line.
 
 | Rule | Enforced by |
 |:---|:---|
@@ -316,6 +331,8 @@ PaperMint/
 │   │   ├── citation_parser.py
 │   │   ├── style_detector.py
 │   │   └── summarizer.py
+│   ├── formatters/
+│   │   └── reference_formatter.py  # APA, MLA, IEEE, Chicago rendering and guides
 │   ├── enrichment/crossref.py
 │   ├── exporters/                  # bibtex, ris, csv, docx, pdf
 │   └── ui/                         # Streamlit lives only here
@@ -324,14 +341,17 @@ PaperMint/
 │       ├── html.py                 # Escaping and safe rendering
 │       ├── styles.py               # Stylesheet built from tokens
 │       ├── navigation.py           # Routes
+│       ├── state.py                # Widget state that survives a page switch
 │       ├── components/             # primitives, citation_card, export_panel, progress, file_uploader
-│       └── pages/                  # home, extract, batch, doi_lookup, about
-└── tests/                          # 345 tests, no network calls
-    ├── test_architecture.py        # Enforces the layering rules (223)
-    ├── test_pipeline.py            # Orchestration, batch, registry, CLI (18)
-    ├── test_normalization.py       # Text repair and parser guards (26)
-    ├── test_ui.py                  # Components and every page (30)
-    └── test_models · test_parsers · test_exporters · test_enrichment
+│       └── pages/                  # home, extract, batch, style_studio, about
+└── tests/                          # 428 tests, no network calls
+    ├── test_architecture.py        # Enforces the layering rules (237)
+    ├── test_ui.py                  # Components, state and every page (40)
+    ├── test_normalization.py       # Text repair and parser guards (40)
+    ├── test_parsers.py             # Detection and multi-block collection (40)
+    ├── test_pipeline.py            # Orchestration, batch, registry, CLI (25)
+    ├── test_formatters.py          # Style rendering and its honesty rules (23)
+    └── test_models · test_exporters · test_enrichment
 ```
 
 ---
@@ -441,7 +461,7 @@ under 50% is also flagged for review.
 Run the gates:
 
 ```bash
-pytest                 # 345 tests, no network calls
+pytest                 # 428 tests, no network calls
 ruff check .
 ruff format --check .
 ```
@@ -450,16 +470,17 @@ ruff format --check .
 
 ## Testing
 
-345 tests. None makes a network call. CrossRef is mocked and PDFs are synthesised
+428 tests. None makes a network call. CrossRef is mocked and PDFs are synthesised
 in memory with PyMuPDF.
 
 | Suite | Tests | Covers |
 |:---|---:|:---|
-| `test_architecture.py` | 223 | Every layering and coding rule, by parsing each module with `ast` |
-| `test_ui.py` | 30 | Markup, escaping, components, all five pages via `AppTest` |
-| `test_normalization.py` | 26 | Text repair, parser guards, surname particles |
-| `test_parsers.py` | 25 | Detection, splitting, style, field extraction |
-| `test_pipeline.py` | 18 | Orchestration, batch isolation, registry, CLI |
+| `test_architecture.py` | 237 | Every layering and coding rule, by parsing each module with `ast` |
+| `test_ui.py` | 40 | Markup, escaping, components, sticky state, the processing flow, all five pages via `AppTest` |
+| `test_normalization.py` | 40 | Text repair, parser guards, surname particles |
+| `test_parsers.py` | 40 | Detection, multi-block collection, splitting, style, fields |
+| `test_pipeline.py` | 25 | Orchestration, batch isolation, registry, CLI |
+| `test_formatters.py` | 23 | Style rendering, list ordering, the honesty rules |
 | `test_models.py` | 11 | Schema, properties, cite keys |
 | `test_exporters.py` | 7 | Every format serialises |
 | `test_enrichment.py` | 5 | CrossRef against mocks |
@@ -473,11 +494,44 @@ in memory with PyMuPDF.
 | 1 | Parser engine hardening — field extraction, validation guards, confidence scoring | **Complete** |
 | 2 | Architecture and service decoupling — `PipelineService`, typed errors, enforced layering | **Complete** |
 | 3 | Interactive review and correction — inline editing, BibTeX copy, search, sort, review filter | **Complete** |
+| 3.5 | Multi-block detection, style rendering, and state that survives a page switch | **Complete** |
 | 4 | Deduplication and provenance — cross-file duplicate merging, source tagging, concurrency | Planned |
 | 5 | Containerisation and deployment | Deferred by request |
 
 `Citation.source_file` is already populated by the pipeline, so the provenance
 data for phase 4 is in place. Batch processing is currently sequential.
+
+---
+
+## What changed in 2.1.0
+
+Interface and coverage work, driven by using 2.0.0 on a real education
+catalogue.
+
+**Added** - `formatters/reference_formatter.py` and the **Style studio** page:
+a `Citation` rendered as APA 7, MLA 9, IEEE or Chicago 17, with an account of
+what each style is for, its ordered elements and the punctuation that closes
+each, and the same entry shown four ways. `PipelineService.parse_reference()`
+parses one pasted reference. `ui/state.py` keeps widget values across a page
+switch. About gained a full "Citation styles, explained" section.
+
+**Changed** - the citation card is now an aligned label-and-value grid with a
+coverage meter, so every field says what it is. The processing indicator is an
+animated flow that names what each stage is doing. Bibliography detection
+collects *every* qualifying reference block rather than the text after the last
+heading, bounded by appendix, index and glossary headings. Both workspace pages
+show their cached result when the upload control comes back empty after a page
+switch.
+
+**Removed** - the DOI lookup page, replaced by the style studio; the "Segments
+set aside" panel, though the quarantine behind it still runs and still keeps
+non-bibliographic segments out of every export; `_has_bibliographic_density()`,
+dead since 2.0.0.
+
+**Unchanged, and deliberately so** - nothing is invented. The new formatter
+omits any element the source did not supply and names it, and it never recases
+a title, because deciding which words are proper nouns is exactly the judgement
+a machine gets wrong.
 
 ---
 
@@ -520,7 +574,6 @@ author extraction; gradient text, emoji icons and hover-lift animation.
 [python-docx](https://python-docx.readthedocs.io) ·
 [python-pptx](https://python-pptx.readthedocs.io) ·
 [Tesseract](https://github.com/tesseract-ocr/tesseract) ·
-[CrossRef](https://www.crossref.org/) via [habanero](https://habanero.readthedocs.io) ·
 [ReportLab](https://www.reportlab.com) ·
 [spaCy](https://spacy.io) (optional)
 
