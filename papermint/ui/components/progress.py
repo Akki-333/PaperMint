@@ -69,16 +69,29 @@ def _progress(stage: PipelineStage) -> float:
     return (position + 0.5) / len(_VISIBLE_STAGES) * 100.0
 
 
-def _state(stage: PipelineStage, current: PipelineStage) -> str:
-    """Classify one step against the stage now running.
+def _state(
+    stage: PipelineStage,
+    current: PipelineStage,
+    *,
+    failed_stage: PipelineStage | None = None,
+) -> str:
+    """Classify one step against the stage now running or failed.
 
     Args:
         stage: The step being drawn.
         current: The stage now running, or ``DONE``.
+        failed_stage: The stage that encountered an error, if any.
 
     Returns:
         The CSS state class for that step.
     """
+    if failed_stage is not None:
+        if stage.order < failed_stage.order:
+            return "is-done"
+        if stage == failed_stage:
+            return "is-failed"
+        return "is-waiting"
+
     if current is PipelineStage.DONE or stage.order < current.order:
         return "is-done"
     if stage is current:
@@ -86,7 +99,14 @@ def _state(stage: PipelineStage, current: PipelineStage) -> str:
     return "is-waiting"
 
 
-def _flow_markup(current: PipelineStage, *, previous: float = 0.0, animated: bool = True) -> str:
+def _flow_markup(
+    current: PipelineStage,
+    *,
+    previous: float = 0.0,
+    animated: bool = True,
+    failed_stage: PipelineStage | None = None,
+    failure_message: str = "",
+) -> str:
     """Build the markup for the flow at a given stage.
 
     Args:
@@ -95,15 +115,23 @@ def _flow_markup(current: PipelineStage, *, previous: float = 0.0, animated: boo
             fill animates forward from there rather than from zero.
         animated: Run the entrance and rail animations and show the live status
             line. Set False for the motionless record of a finished run.
+        failed_stage: The stage that encountered an error, if any.
+        failure_message: Optional specific error message to surface.
 
     Returns:
         The flow's HTML.
     """
-    target = _progress(current)
+    target = _progress(failed_stage) if failed_stage is not None else _progress(current)
     steps: list[str] = []
     for position, stage in enumerate(_VISIBLE_STAGES):
-        state = _state(stage, current)
-        glyph = icon("check", size=14) if state == "is-done" else icon(_STAGE_ICON[stage], size=14)
+        state = _state(stage, current, failed_stage=failed_stage)
+        if state == "is-failed":
+            glyph = icon("x", size=14, stroke=2.2)
+        elif state == "is-done":
+            glyph = icon("check", size=14, stroke=2.0)
+        else:
+            glyph = icon(_STAGE_ICON[stage], size=14)
+
         steps.append(
             f'<li class="pm-flow-step {state}" style="--pm-step:{position};">'
             f'<span class="pm-flow-node">{glyph}</span>'
@@ -112,7 +140,17 @@ def _flow_markup(current: PipelineStage, *, previous: float = 0.0, animated: boo
         )
 
     status = ""
-    if animated and current is not PipelineStage.DONE:
+    if failed_stage is not None:
+        msg = (
+            failure_message or f"Processing interrupted at the {failed_stage.label.lower()} stage."
+        )
+        status = (
+            '<div class="pm-flow-status">'
+            '<span class="pm-flow-beacon is-failed"></span>'
+            f'<span class="pm-flow-said"><b>Failed at {esc(failed_stage.label)}:</b> {esc(msg)}</span>'
+            "</div>"
+        )
+    elif animated and current is not PipelineStage.DONE:
         status = (
             '<div class="pm-flow-status">'
             '<span class="pm-flow-beacon"></span>'
@@ -120,7 +158,13 @@ def _flow_markup(current: PipelineStage, *, previous: float = 0.0, animated: boo
             "</div>"
         )
 
-    classes = "pm-flow is-live" if animated else "pm-flow"
+    if failed_stage is not None:
+        classes = "pm-flow is-failed"
+    elif animated:
+        classes = "pm-flow is-live"
+    else:
+        classes = "pm-flow"
+
     return (
         f'<div class="{classes}" style="--pm-from:{previous:.1f}%;--pm-to:{target:.1f}%;">'
         '<div class="pm-flow-rail"><div class="pm-flow-fill"></div></div>'
@@ -141,36 +185,81 @@ class PipelineStepper:
         slot: The placeholder the flow draws into.
         reached: How far along the rail the last redraw left the fill, so the
             next one animates on from there instead of restarting at zero.
+        current_stage: The stage that is currently running or was last reported.
     """
 
     slot: Any = field(default_factory=st.empty)
     reached: float = 0.0
+    current_stage: PipelineStage = PipelineStage.EXTRACT
 
     def update(self, stage: PipelineStage) -> None:
         """Redraw the flow for the given stage.
 
         Args:
-            stage: The stage that has just started.
+            stage: The stage that has just started, or ``DONE``.
         """
-        self.slot.html(compact(_flow_markup(stage, previous=self.reached)))
+        self.current_stage = stage
+        is_done = stage is PipelineStage.DONE
+        self.slot.html(compact(_flow_markup(stage, previous=self.reached, animated=(not is_done))))
         self.reached = _progress(stage)
 
+    def fail(self, stage: PipelineStage | None = None, message: str = "") -> None:
+        """Mark the flow as failed at the given or current stage with an X mark.
+
+        Args:
+            stage: The stage that failed. If None, uses ``current_stage``.
+            message: The human-readable reason or error message.
+        """
+        failed = stage or self.current_stage
+        self.slot.html(
+            compact(
+                _flow_markup(
+                    failed,
+                    previous=self.reached,
+                    animated=False,
+                    failed_stage=failed,
+                    failure_message=message,
+                )
+            )
+        )
+        self.reached = _progress(failed)
+
+    def finish(self) -> None:
+        """Settle the flow in its completed state."""
+        self.update(PipelineStage.DONE)
+
     def clear(self) -> None:
-        """Remove the flow from the page once a run has finished."""
+        """Remove the flow from the page."""
         self.slot.empty()
 
 
-def render_stepper(current: PipelineStage, *, animated: bool = True) -> None:
+def render_stepper(
+    current: PipelineStage = PipelineStage.DONE,
+    *,
+    animated: bool = False,
+    failed_stage: PipelineStage | None = None,
+    failure_message: str = "",
+) -> None:
     """Render a one-shot flow at a fixed stage.
 
     Args:
-        current: The stage to display as active.
-        animated: Whether to play the entrance animation. A finished run's
-            record is drawn motionless, because it is redrawn on every
-            interaction with the page and repeating the motion would turn a
-            settled fact into a distraction.
+        current: The stage to display as active, or ``DONE``.
+        animated: Whether to play the entrance animation.
+        failed_stage: Optional stage that encountered an error.
+        failure_message: Optional error message.
     """
-    st.html(compact(_flow_markup(current, previous=100.0, animated=animated)))
+    prev = 100.0 if current is PipelineStage.DONE else _progress(current)
+    st.html(
+        compact(
+            _flow_markup(
+                current,
+                previous=prev,
+                animated=animated,
+                failed_stage=failed_stage,
+                failure_message=failure_message,
+            )
+        )
+    )
 
 
 __all__ = ["PipelineStepper", "render_stepper"]

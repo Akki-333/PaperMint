@@ -118,7 +118,8 @@ def _run_pipeline(uploaded_file: Any, options: PipelineOptions) -> ExtractionRes
                 document, options, on_progress=stepper.update
             )
     except PaperMintError as err:
-        stepper.clear()
+        stepper.fail(message=str(err))
+        st.write("")
         notice(
             "This document could not be processed",
             str(err),
@@ -127,8 +128,9 @@ def _run_pipeline(uploaded_file: Any, options: PipelineOptions) -> ExtractionRes
         )
         return None
     except Exception:
-        stepper.clear()
         logger.exception("Unexpected failure while processing %s", document.filename)
+        stepper.fail(message="An unexpected error interrupted processing.")
+        st.write("")
         notice(
             "Something went wrong",
             "An unexpected error interrupted processing. The details were written "
@@ -137,16 +139,19 @@ def _run_pipeline(uploaded_file: Any, options: PipelineOptions) -> ExtractionRes
         )
         return None
 
-    stepper.clear()
+    stepper.finish()
     return result
 
 
-def _ensure_result(uploaded_file: Any, options: PipelineOptions) -> ExtractionResult | None:
+def _ensure_result(
+    uploaded_file: Any, options: PipelineOptions, stepper: PipelineStepper
+) -> ExtractionResult | None:
     """Return the cached result for this upload, processing it if needed.
 
     Args:
         uploaded_file: The Streamlit upload object.
         options: The reader's processing options.
+        stepper: The live stage indicator.
 
     Returns:
         The result, or None when processing failed.
@@ -159,9 +164,10 @@ def _ensure_result(uploaded_file: Any, options: PipelineOptions) -> ExtractionRe
     )
 
     if st.session_state.get(_SIGNATURE_KEY) == signature:
+        stepper.finish()
         return st.session_state.get(_RESULT_KEY)
 
-    result = _run_pipeline(uploaded_file, options)
+    result = _run_pipeline(uploaded_file, options, stepper)
     if result is None:
         st.session_state.pop(_SIGNATURE_KEY, None)
         st.session_state.pop(_RESULT_KEY, None)
@@ -580,6 +586,7 @@ def render() -> None:
             )
             return
         _render_restored(cached)
+        render_stepper(PipelineStage.DONE, animated=False)
         _render_results(cached, st.session_state.get(_CITATIONS_KEY, []))
         retain(*_STICKY_KEYS)
         return
@@ -608,7 +615,8 @@ def render() -> None:
         force_prose=force_prose,
         summary_sentences=summary_sentences,
     )
-    result = _ensure_result(uploaded_file, options)
+    stepper = PipelineStepper(slot=st.empty())
+    result = _ensure_result(uploaded_file, options, stepper)
     if result is None:
         return
 

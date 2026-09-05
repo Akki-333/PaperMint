@@ -635,6 +635,18 @@ def _components() -> str:
     color: var(--pm-color-accent-bright);
     font-weight: 600;
 }
+.pm-flow-step.is-failed .pm-flow-node {
+    color: var(--pm-color-critical);
+    border-color: var(--pm-color-critical);
+    background: var(--pm-fill-critical-12);
+}
+.pm-flow-step.is-failed .pm-flow-name {
+    color: var(--pm-color-critical);
+    font-weight: 600;
+}
+.pm-flow.is-failed .pm-flow-rail .pm-flow-fill {
+    background: var(--pm-color-critical);
+}
 
 .pm-flow-status {
     display: flex;
@@ -656,6 +668,14 @@ def _components() -> str:
     border-radius: 50%;
     background: var(--pm-color-accent);
     animation: pm-flow-beacon 1.3s ease-in-out infinite;
+}
+.pm-flow-beacon.is-failed {
+    background: var(--pm-color-critical);
+    animation: none;
+}
+.pm-flow-beacon.is-complete {
+    background: var(--pm-color-accent);
+    animation: none;
 }
 
 /* --- Summary and source text ------------------------------------------ */

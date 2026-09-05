@@ -76,6 +76,8 @@ _PATHS: Final[dict[str, str]] = {
         '<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22z"/>'
         '<path d="M4 17.5A2.5 2.5 0 0 1 6.5 15H19"/>'
     ),
+    "x": '<path d="M18 6L6 18"/><path d="M6 6l12 12"/>',
+    "cross": '<path d="M18 6L6 18"/><path d="M6 6l12 12"/>',
 }
 
 

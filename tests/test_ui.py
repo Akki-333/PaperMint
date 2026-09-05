@@ -335,3 +335,18 @@ def test_navigation_uses_reference_formatter_title():
     styles_route = next(r for r in _ROUTES if r[0] == "styles")
     assert styles_route[1] == "Reference formatter"
     assert styles_route[3] == "reference-formatter"
+
+
+def test_a_failed_flow_shows_failure_mark_and_retains_completed_stages():
+    markup = _flow_markup(
+        PipelineStage.PARSE,
+        previous=25.0,
+        animated=False,
+        failed_stage=PipelineStage.PARSE,
+        failure_message="Malformed citation block",
+    )
+    assert "is-failed" in markup
+    assert "is-done" in markup
+    assert "is-waiting" in markup
+    assert "Malformed citation block" in markup
+    assert 'class="pm-flow-beacon is-failed"' in markup
