@@ -359,3 +359,89 @@ def test_a_front_matter_declaration_needs_corroboration():
     outcome = characterize_document(text)
     assert outcome.method is not DetectionMethod.TITLE_PAGE
     assert outcome.kind is not DocumentKind.BIBLIOGRAPHY
+
+
+# --- Collecting every reference block ---------------------------------------
+
+#: A paper with two reference lists, an appendix between them and an index
+#: after them. Reading only the last heading would lose the first list; reading
+#: everything after the last heading would turn the index into citations.
+MULTI_BLOCK_PAPER = """A Study of Reading Habits
+
+This chapter argues that reading habits are formed early and that the school
+library is the decisive institution in that formation. We review the evidence
+from three decades of classroom studies and set out a model of acquisition.
+
+References
+
+Ambler, M. (1992). Women leaders in Indian education. Tribal College, 3(4), 10-15.
+Brown, T. (2004). Reading and the school library. Educational Press.
+Chen, L. and Diaz, R. (2011). Habit formation. Journal of Reading, 22(1), 44-61.
+
+Appendix A: Survey instrument
+
+Respondents were asked to rate each statement on a five point scale running
+from strongly disagree to strongly agree. The instrument was piloted with a
+sample of forty pupils drawn from two schools in the same local authority.
+Item wording was revised twice before the main study went into the field.
+
+Further reading
+
+Ellis, P. (2015). The library as classroom. vol. 8, pp. 3-19.
+Fisher, K. (2019). Adolescent literacy now. Reading Trust Press. 210 p.
+
+Index
+
+reading habits, 3
+school library, 4
+"""
+
+#: A paper whose first heading introduces discussion rather than references.
+#: The block beneath it must not be collected, or a chapter of prose joins the
+#: bibliography on the strength of a keyword.
+DISCURSIVE_HEADING_PAPER = """Reading and its Institutions
+
+Further reading
+
+The literature on this question is uneven and much of it predates the
+comprehensive reforms, so a reader coming to it now should begin with the
+review articles rather than the primary studies, which assume a policy
+context that no longer holds anywhere in the system as it stands today.
+
+References
+
+Ambler, M. (1992). Women leaders in Indian education. Tribal College, 3(4), 10-15.
+Brown, T. (2004). Reading and the school library. Educational Press.
+Chen, L. and Diaz, R. (2011). Habit formation. Journal of Reading, 22(1), 44-61.
+"""
+
+
+def test_every_reference_block_is_collected_not_only_the_last():
+    outcome = characterize_document(MULTI_BLOCK_PAPER)
+    assert "Ambler" in outcome.bibliography_text
+    assert "Ellis" in outcome.bibliography_text
+    assert "2 reference blocks" in outcome.notes[0]
+
+
+def test_an_appendix_between_two_lists_stays_in_the_body():
+    outcome = characterize_document(MULTI_BLOCK_PAPER)
+    assert "five point scale" not in outcome.bibliography_text
+    assert "five point scale" in outcome.body_text
+
+
+def test_an_index_after_the_references_is_not_read_as_entries():
+    outcome = characterize_document(MULTI_BLOCK_PAPER)
+    assert "school library, 4" not in outcome.bibliography_text
+
+
+def test_a_heading_whose_block_is_prose_is_not_collected():
+    # The negative case: an earlier heading has to earn its place by looking
+    # like references, or a keyword drags a chapter of discussion in with it.
+    outcome = characterize_document(DISCURSIVE_HEADING_PAPER)
+    assert "predates the" not in outcome.bibliography_text
+    assert "Ambler" in outcome.bibliography_text
+
+
+def test_a_single_reference_section_still_names_its_heading():
+    outcome = characterize_document(DISCURSIVE_HEADING_PAPER)
+    assert outcome.notes[0].startswith("Matched the heading")

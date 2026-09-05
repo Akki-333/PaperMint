@@ -68,10 +68,14 @@ BIBLIOGRAPHY_HEADERS: list[str] = [
     "bibliography",
     "annotated bibliography",
     "selected bibliography",
+    "select bibliography",
+    "classified bibliography",
     "works cited",
+    "works consulted",
     "literature cited",
     "reference list",
     "references and notes",
+    "notes and references",
     "selected references",
     "sources cited",
     "sources consulted",
@@ -79,7 +83,45 @@ BIBLIOGRAPHY_HEADERS: list[str] = [
     "list of references",
     "list of books",
     "reading list",
+    "further reading",
+    "suggested reading",
+    "suggested readings",
+    "recommended reading",
+    "primary sources",
+    "secondary sources",
     "literature",
+]
+
+#: Headings that close a bibliography block. A reference list followed by an
+#: appendix, an index or author biographies must stop at that heading rather
+#: than swallowing the rest of the document, which is how appendix prose used
+#: to reach the parser as citations.
+SECTION_TERMINATOR_HEADERS: list[str] = [
+    "appendix",
+    "appendices",
+    "index",
+    "subject index",
+    "author index",
+    "name index",
+    "acknowledgement",
+    "acknowledgements",
+    "acknowledgment",
+    "acknowledgments",
+    "about the author",
+    "about the authors",
+    "author biographies",
+    "biographical note",
+    "biographical notes",
+    "glossary",
+    "abbreviations",
+    "list of abbreviations",
+    "supplementary material",
+    "supporting information",
+    "supplemental material",
+    "list of figures",
+    "list of tables",
+    "notes on contributors",
+    "curriculum vitae",
 ]
 
 #: Maximum lines from the beginning of a document inspected for title-page declarations.
@@ -94,6 +136,17 @@ FRONT_MATTER_DECLARATION_MAX_WORDS = 18
 #: Fraction of trailing lines that must look bibliographic to trigger the
 #: density fallback in :mod:`papermint.parsers.bibliography_detector`.
 BIBLIOGRAPHY_DENSITY_THRESHOLD = 0.20
+
+#: Consecutive lines of real prose that close a heading-introduced reference
+#: block. Deliberately generous: an annotated bibliography puts several lines
+#: of commentary under every entry, and each entry's own header resets the run,
+#: so only a genuinely new section of narrative reaches this many lines.
+BIBLIOGRAPHY_BLOCK_PROSE_GAP = 12
+
+#: Fewest lines a secondary reference block must contain to be collected. A
+#: one-line match is far more likely to be a cross-reference in running text
+#: than a second bibliography.
+BIBLIOGRAPHY_MIN_BLOCK_LINES = 2
 
 #: Fraction of a split that must look like citations for the split to be
 #: accepted by :mod:`papermint.parsers.citation_splitter`.

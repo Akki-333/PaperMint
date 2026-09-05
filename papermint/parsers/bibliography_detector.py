@@ -15,16 +15,20 @@ Two entry points are exposed:
 
 from __future__ import annotations
 
+import bisect
 import logging
 import re
 from dataclasses import dataclass, field
 
 from papermint.config import (
+    BIBLIOGRAPHY_BLOCK_PROSE_GAP,
     BIBLIOGRAPHY_DENSITY_THRESHOLD,
     BIBLIOGRAPHY_HEADERS,
+    BIBLIOGRAPHY_MIN_BLOCK_LINES,
     FRONT_MATTER_DECLARATION_MAX_WORDS,
     FRONT_MATTER_MAX_LINES,
     REFERENCE_ONLY_COVERAGE,
+    SECTION_TERMINATOR_HEADERS,
 )
 from papermint.models import DetectionMethod, DocumentKind
 
@@ -157,8 +161,30 @@ def _build_multi_line_header_pattern() -> re.Pattern[str]:
     )
 
 
+def _build_terminator_pattern() -> re.Pattern[str]:
+    """Compile the regex for headings that close a reference block.
+
+    A reference list is rarely the last thing in a document. An appendix, an
+    index, author biographies or a glossary follow it, and everything after the
+    heading used to be swallowed into the bibliography and shredded into
+    entries. The trailing label is capped at four words so that a heading such
+    as 'Appendix B: Derivation of the Hamiltonian' still matches while a
+    sentence merely opening with one of these words does not.
+    """
+    headers = "|".join(re.escape(header) for header in SECTION_TERMINATOR_HEADERS)
+    prefix = (
+        r"(?:(?:\d+\.?|(?:part|chapter|section)\s+"
+        r"(?:one|two|three|four|five|\d+|[ivx]+))\s*[:.-]*)?"
+    )
+    return re.compile(
+        rf"^\s*{prefix}(?:{headers})\b(?:\s*[:.-]?\s*[A-Za-z0-9][\w'-]*){{0,4}}\s*[:.]?\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+
+
 _HEADER_PATTERN = _build_header_pattern()
 _MULTI_LINE_HEADER_PATTERN = _build_multi_line_header_pattern()
+_TERMINATOR_PATTERN = _build_terminator_pattern()
 
 
 # ---------------------------------------------------------------------------
@@ -327,17 +353,209 @@ def _density(lines: list[str]) -> float:
     return sum(1 for line in lines if _citation_signal(line)) / len(lines)
 
 
-def _has_bibliographic_density(text: str) -> bool:
-    """Check if the text has high bibliographic density.
+def _line_starts(text: str) -> list[int]:
+    """Return the character offset at which each line begins.
 
     Args:
-        text: The text to analyze.
+        text: The full document text.
 
     Returns:
-        True if the text appears to be a bibliography based on density.
+        One offset per line, in order.
     """
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-    return _density(lines) > BIBLIOGRAPHY_DENSITY_THRESHOLD
+    offsets = [0]
+    for index, character in enumerate(text):
+        if character == "\n":
+            offsets.append(index + 1)
+    return offsets
+
+
+def _heading_line(text: str, offsets: list[int], match: re.Match[str]) -> int:
+    """Return the index of the line a heading match actually occupies.
+
+    The heading patterns end in an optional whitespace run, and whitespace
+    includes a newline, so a match greedily absorbs the blank lines beneath the
+    heading and its end offset can land several lines below it. The last
+    non-space character inside the match is the reliable anchor, and it is also
+    correct for the two-line "PART TWO / Annotated Bibliography" form, whose
+    heading is the second of the two lines.
+
+    Args:
+        text: The full document text.
+        offsets: The line start offsets from :func:`_line_starts`.
+        match: A heading match against ``text``.
+
+    Returns:
+        The zero-based index of the heading's own line.
+    """
+    end = match.end()
+    while end > match.start() and text[end - 1].isspace():
+        end -= 1
+    return _line_of(offsets, max(end - 1, match.start()))
+
+
+def _line_of(offsets: list[int], position: int) -> int:
+    """Map a character offset onto the index of the line containing it.
+
+    Args:
+        offsets: The line start offsets from :func:`_line_starts`.
+        position: A character offset into the same text.
+
+    Returns:
+        The zero-based line index.
+    """
+    return bisect.bisect_right(offsets, position) - 1
+
+
+def _block_end(lines: list[str], start: int, hard_stop: int) -> int:
+    """Find where a heading-introduced reference block stops.
+
+    The scan runs forwards from the first line beneath the heading and returns
+    ``hard_stop`` unless it meets a sustained run of narrative prose, in which
+    case the block ends where that run began.
+
+    Returning ``hard_stop`` when no prose run is found is deliberate. An
+    alternative implementation that returned the last line carrying a citation
+    signal would truncate the tail of the final entry, because a wrapped
+    closing line such as "Educational Press." carries only one weak signal and
+    is neither a citation nor prose.
+
+    Args:
+        lines: The document's lines, unstripped.
+        start: The first line of the block.
+        hard_stop: The line at which the block must end regardless, being the
+            next heading of any kind, or the end of the document.
+
+    Returns:
+        The exclusive end index of the block.
+    """
+    gap = 0
+    run_start = hard_stop
+    for index in range(start, hard_stop):
+        stripped = lines[index].strip()
+        if not stripped:
+            continue
+        if _citation_signal(stripped):
+            gap = 0
+            run_start = hard_stop
+            continue
+        if not _is_prose(stripped):
+            continue
+        if gap == 0:
+            run_start = index
+        gap += 1
+        if gap > BIBLIOGRAPHY_BLOCK_PROSE_GAP:
+            return run_start
+    return hard_stop
+
+
+def _non_empty(lines: list[str], start: int, end: int) -> list[str]:
+    """Return the stripped, non-empty lines of one region.
+
+    Args:
+        lines: The document's lines.
+        start: The region's first line.
+        end: The region's exclusive end.
+
+    Returns:
+        The region's meaningful lines.
+    """
+    return [line.strip() for line in lines[start:end] if line.strip()]
+
+
+def _merge(regions: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Combine overlapping or touching regions into one span each.
+
+    Args:
+        regions: ``(start, end)`` line spans in any order.
+
+    Returns:
+        Disjoint spans in document order.
+    """
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(regions):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _heading_regions(
+    lines: list[str], heading_lines: list[int], stop_lines: list[int]
+) -> list[tuple[int, int]]:
+    """Collect every reference block introduced by a heading.
+
+    A document is not limited to one bibliography. A monograph carries a
+    reference list per chapter, a report separates primary from secondary
+    sources, and a paper may follow its references with a further-reading list.
+    Every heading therefore opens a candidate block, bounded by the next
+    heading of any kind and trimmed at any sustained run of narrative prose.
+
+    The block beneath the *last* heading is kept unconditionally, which
+    preserves the long-standing rule that a contents-page entry cannot outrank
+    the real section. Every earlier block has to earn its place by being dense
+    enough to read as references, so a stray keyword in a heading does not drag
+    a chapter of prose into the bibliography.
+
+    Args:
+        lines: The document's lines, unstripped.
+        heading_lines: Indices of lines carrying a bibliography heading.
+        stop_lines: Indices of lines carrying a terminating heading.
+
+    Returns:
+        The accepted ``(start, end)`` spans, in document order.
+    """
+    boundaries = sorted(set(heading_lines) | set(stop_lines))
+    last_heading = heading_lines[-1]
+    kept: list[tuple[int, int]] = []
+
+    for heading in heading_lines:
+        start = heading + 1
+        hard_stop = next((b for b in boundaries if b > heading), len(lines))
+        if hard_stop <= start:
+            continue
+        end = _block_end(lines, start, hard_stop)
+        block = _non_empty(lines, start, end)
+        if not block:
+            continue
+        # The final heading's block is kept on the strength of the heading
+        # alone; every earlier one has to read like references before it is
+        # allowed to join them.
+        earns_its_place = (
+            len(block) >= BIBLIOGRAPHY_MIN_BLOCK_LINES
+            and _density(block) > BIBLIOGRAPHY_DENSITY_THRESHOLD
+        )
+        if heading == last_heading or earns_its_place:
+            kept.append((start, end))
+
+    return _merge(kept)
+
+
+def _trailing_region(lines: list[str], after: int) -> tuple[int, int] | None:
+    """Find an unheaded reference block below every heading-introduced one.
+
+    A paper whose references are followed by an appendix and then by a second,
+    unheaded list of sources would otherwise lose that list entirely: the
+    heading block stops at the appendix, and nothing looks past it.
+
+    Args:
+        lines: The document's lines, unstripped.
+        after: The line below which to search.
+
+    Returns:
+        The ``(start, end)`` span, or None when the tail carries no references.
+    """
+    tail = _non_empty(lines, after, len(lines))
+    if len(tail) < BIBLIOGRAPHY_MIN_BLOCK_LINES or _density(tail) <= BIBLIOGRAPHY_DENSITY_THRESHOLD:
+        return None
+
+    start = after + _find_dense_block_start(lines[after:], 0)
+    block = _non_empty(lines, start, len(lines))
+    if len(block) < BIBLIOGRAPHY_MIN_BLOCK_LINES or _density(block) <= (
+        BIBLIOGRAPHY_DENSITY_THRESHOLD
+    ):
+        return None
+    return start, len(lines)
 
 
 def _find_dense_block_start(lines: list[str], search_from: int) -> int:
@@ -462,43 +680,85 @@ def characterize_document(text: str, force_parse: bool = False) -> DetectionOutc
     lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
     declaration = _front_matter_declaration(lines)
 
-    # 2. An explicit section heading. This runs first because a heading standing
+    # 2. Explicit section headings. This runs first because a heading standing
     #    alone on its own line is the most specific evidence in the document. It
     #    used to run *after* the front-matter keyword scan, so the weakest signal
     #    outranked the strongest and a thesis with a contents page was relabelled
     #    a reference list.
-    for match in reversed(header_matches):
-        candidate = text[match.end() :].strip()
-        if not candidate:
-            continue
-        heading = match.group(0).strip().replace("\n", " ")
-        body = text[: match.start()].strip()
-        coverage = len(candidate) / len(stripped)
-        # Calling the whole document a bibliography needs more than a heading:
-        # the text beneath it has to read like references. A chapter headed
-        # "Selected Bibliography" that then discusses the literature in prose is
-        # not a reference list, and labelling it one also replaces its summary.
-        dense = _density([ln.strip() for ln in candidate.split("\n") if ln.strip()])
-        kind = (
-            DocumentKind.BIBLIOGRAPHY
-            if coverage >= REFERENCE_ONLY_COVERAGE and dense > BIBLIOGRAPHY_DENSITY_THRESHOLD
-            else DocumentKind.RESEARCH_PAPER
+    #
+    #    Every heading is collected, not only the last one. A document may carry
+    #    a reference list per chapter, separate primary and secondary source
+    #    lists, or a further-reading list after its references, and a tool that
+    #    reads only the final heading silently discards the rest.
+    if header_matches:
+        raw_lines = text.split("\n")
+        offsets = _line_starts(text)
+        # Two patterns can match the same heading; the longer match is the
+        # two-line "PART TWO / Annotated Bibliography" form, and it is the one
+        # worth quoting back to the reader.
+        heading_text: dict[int, str] = {}
+        for match in header_matches:
+            line = _heading_line(text, offsets, match)
+            label = " ".join(match.group(0).split())
+            if len(label) > len(heading_text.get(line, "")):
+                heading_text[line] = label
+        heading_lines = sorted(heading_text)
+        stop_lines = sorted(
+            {_heading_line(text, offsets, m) for m in _TERMINATOR_PATTERN.finditer(text)}
         )
-        if kind is DocumentKind.BIBLIOGRAPHY and (
-            _looks_annotated(candidate) or (declaration and "annotated" in declaration[0].lower())
-        ):
-            kind = DocumentKind.ANNOTATED_BIBLIOGRAPHY
-        notes = [f'Matched the heading "{heading}".']
-        if declaration:
-            notes.append(f'The front matter also declares: "{declaration[0][:80]}".')
-        return DetectionOutcome(
-            bibliography_text=candidate,
-            body_text=body,
-            method=DetectionMethod.SECTION_HEADER,
-            kind=kind,
-            confidence=0.95 if declaration else 0.9,
-            notes=notes,
-        )
+
+        regions = _heading_regions(raw_lines, heading_lines, stop_lines)
+        if regions:
+            trailing = _trailing_region(raw_lines, max(end for _, end in regions))
+            if trailing is not None:
+                regions = _merge([*regions, trailing])
+
+            covered = {index for start, end in regions for index in range(start, end)}
+            covered.update(heading_lines)
+            candidate = "\n\n".join(
+                "\n".join(raw_lines[start:end]).strip() for start, end in regions
+            ).strip()
+            body = "\n".join(
+                line for index, line in enumerate(raw_lines) if index not in covered
+            ).strip()
+
+            block_lines = [
+                line for start, end in regions for line in _non_empty(raw_lines, start, end)
+            ]
+            coverage = len(candidate) / len(stripped)
+            # Calling the whole document a bibliography needs more than a
+            # heading: the text beneath it has to read like references. A
+            # chapter headed "Selected Bibliography" that then discusses the
+            # literature in prose is not a reference list, and labelling it one
+            # also replaces its summary.
+            dense = _density(block_lines)
+            kind = (
+                DocumentKind.BIBLIOGRAPHY
+                if coverage >= REFERENCE_ONLY_COVERAGE and dense > BIBLIOGRAPHY_DENSITY_THRESHOLD
+                else DocumentKind.RESEARCH_PAPER
+            )
+            if kind is DocumentKind.BIBLIOGRAPHY and (
+                _looks_annotated(candidate)
+                or (declaration and "annotated" in declaration[0].lower())
+            ):
+                kind = DocumentKind.ANNOTATED_BIBLIOGRAPHY
+
+            headings = [heading_text[line] for line in heading_lines]
+            if len(regions) == 1:
+                notes = [f'Matched the heading "{headings[-1]}".']
+            else:
+                named = ", ".join(repr(heading) for heading in headings[: len(regions)])
+                notes = [f"{len(regions)} reference blocks were collected, headed {named}."]
+            if declaration:
+                notes.append(f'The front matter also declares: "{declaration[0][:80]}".')
+            return DetectionOutcome(
+                bibliography_text=candidate,
+                body_text=body,
+                method=DetectionMethod.SECTION_HEADER,
+                kind=kind,
+                confidence=0.95 if declaration else 0.9,
+                notes=notes,
+            )
 
     # 3. A front-matter title declaring the whole document a bibliography.
     #    A declaration alone proves nothing, so it must be corroborated by the
