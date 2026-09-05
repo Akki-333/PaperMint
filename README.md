@@ -132,10 +132,13 @@ three tabs: References, Summary and Source text. Search, sort and filter the
 references, correct any of them inline, then export.
 
 **Batch processing.** Upload many. Each file is processed independently, so a
-corrupt PDF is reported against itself instead of aborting the run. Export one
-merged bibliography.
+corrupt PDF is reported against itself instead of aborting the run. Results
+open as a workbench rather than a stack: a rail on the left names every file
+with how it turned out, one click puts that document in the pane beside it
+with its own search, sort, paging and export, and the merged bibliography for
+the whole run is a tab away rather than below everything.
 
-**Style studio.** Takes the references you just extracted, or one you paste,
+**Reference formatter.** Takes the references you just extracted, or one you paste,
 and sets them as a finished reference list in APA, MLA, IEEE or Chicago, with
 the same entry shown four ways for comparison. Beside it is an account of what
 that style is for and how an entry is built. Nothing is invented: an element
@@ -342,11 +345,11 @@ PaperMint/
 │       ├── styles.py               # Stylesheet built from tokens
 │       ├── navigation.py           # Routes
 │       ├── state.py                # Widget state that survives a page switch
-│       ├── components/             # primitives, citation_card, export_panel, progress, file_uploader
+│       ├── components/             # primitives, citation_card, citation_browser, export_panel, progress, file_uploader
 │       └── pages/                  # home, extract, batch, style_studio, about
-└── tests/                          # 428 tests, no network calls
-    ├── test_architecture.py        # Enforces the layering rules (237)
-    ├── test_ui.py                  # Components, state and every page (40)
+└── tests/                          # 445 tests, no network calls
+    ├── test_architecture.py        # Enforces the layering rules (241)
+    ├── test_ui.py                  # Components, state and every page (53)
     ├── test_normalization.py       # Text repair and parser guards (40)
     ├── test_parsers.py             # Detection and multi-block collection (40)
     ├── test_pipeline.py            # Orchestration, batch, registry, CLI (25)
@@ -475,8 +478,8 @@ in memory with PyMuPDF.
 
 | Suite | Tests | Covers |
 |:---|---:|:---|
-| `test_architecture.py` | 237 | Every layering and coding rule, by parsing each module with `ast` |
-| `test_ui.py` | 40 | Markup, escaping, components, sticky state, the processing flow, all five pages via `AppTest` |
+| `test_architecture.py` | 241 | Every layering and coding rule, by parsing each module with `ast` |
+| `test_ui.py` | 53 | Markup, escaping, components, sticky state, the processing flow, the batch workbench, all five pages via `AppTest` |
 | `test_normalization.py` | 40 | Text repair, parser guards, surname particles |
 | `test_parsers.py` | 40 | Detection, multi-block collection, splitting, style, fields |
 | `test_pipeline.py` | 25 | Orchestration, batch isolation, registry, CLI |
@@ -498,8 +501,33 @@ in memory with PyMuPDF.
 | 4 | Deduplication and provenance — cross-file duplicate merging, source tagging, concurrency | Planned |
 | 5 | Containerisation and deployment | Deferred by request |
 
-`Citation.source_file` is already populated by the pipeline, so the provenance
-data for phase 4 is in place. Batch processing is currently sequential.
+`Citation.source_file` is already populated by the pipeline and is shown on
+every entry in the batch page's merged library, so both the data and the
+surface for phase 4 are in place. Batch processing is currently sequential.
+
+---
+
+## What changed in 2.1.1
+
+The batch page became a workbench.
+
+**Added** - `ui/components/citation_browser.py`: search, ordering, a
+needs-review filter and paging over any citation list, namespaced by a key
+prefix so several can coexist on one screen. The analyzer and both of the
+batch page's lists now share it, so a long reference list behaves the same
+wherever it appears. `render_compact_export()` gives a document its own export
+in a popover; `document_header()` and `micro_note()` are the two primitives the
+new layout needed.
+
+**Changed** - batch results are a rail and a pane instead of a stack of
+expanders. The rail names every file with how it turned out; selecting one puts
+that document in the pane with its own controls and its own export. The merged
+export moved into a tab of its own, so it is one click from the top of the
+results rather than below every file. Every entry in the merged library names
+the file it came from.
+
+**Fixed** - opening a 163-entry file no longer renders 163 cards at once, and
+reaching the export no longer means scrolling past every document in the run.
 
 ---
 
