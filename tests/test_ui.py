@@ -350,3 +350,21 @@ def test_a_failed_flow_shows_failure_mark_and_retains_completed_stages():
     assert "is-waiting" in markup
     assert "Malformed citation block" in markup
     assert 'class="pm-flow-beacon is-failed"' in markup
+
+
+def test_reference_formatter_docx_export(citation):
+    import docx
+
+    from papermint.formatters.reference_formatter import format_reference_list, style_guide
+    from papermint.ui.pages.style_studio import _docx_bytes
+
+    guide = style_guide(CitationStyle.APA)
+    rendered = format_reference_list([citation], guide.style)
+    stream = _docx_bytes(rendered, guide)
+    assert stream.getbuffer().nbytes > 0
+
+    doc = docx.Document(stream)
+    assert len(doc.paragraphs) >= 2
+    ref_p = doc.paragraphs[-1]
+    assert ref_p.paragraph_format.left_indent.inches == 0.5
+    assert ref_p.paragraph_format.first_line_indent.inches == -0.5
