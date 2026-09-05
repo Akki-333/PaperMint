@@ -511,9 +511,16 @@ def _render_results(result: ExtractionResult, citations: list[Citation]) -> None
             key_prefix="extract",
             default_name=safe_filename(result.source_filename.rsplit(".", 1)[0]),
         )
+        from papermint.ui.navigation import page
+
         st.caption(
             "These references stay loaded while you move around the application. "
-            "Open Style studio to set them in APA, MLA, IEEE or Chicago."
+            "Open Reference formatter to set them in APA, MLA, IEEE or Chicago."
+        )
+        st.page_link(
+            page("styles"),
+            label="Format references in APA, MLA, IEEE or Chicago",
+            icon=":material/format_quote:",
         )
         return
 

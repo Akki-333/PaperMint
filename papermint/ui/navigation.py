@@ -23,7 +23,7 @@ _ROUTES: tuple[tuple[str, str, str, str, str], ...] = (
     ("home", "Dashboard", ":material/home:", "home", "Overview"),
     ("extract", "Document analyzer", ":material/description:", "analyze", "Workspace"),
     ("batch", "Batch processing", ":material/layers:", "batch", "Workspace"),
-    ("styles", "Style studio", ":material/format_quote:", "style-studio", "Tools"),
+    ("styles", "Reference formatter", ":material/format_quote:", "reference-formatter", "Tools"),
     ("about", "About", ":material/info:", "about", "Help"),
 )
 

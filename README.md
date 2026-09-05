@@ -508,7 +508,7 @@ data for phase 4 is in place. Batch processing is currently sequential.
 Interface and coverage work, driven by using 2.0.0 on a real education
 catalogue.
 
-**Added** - `formatters/reference_formatter.py` and the **Style studio** page:
+**Added** - `formatters/reference_formatter.py` and the **Reference formatter** page:
 a `Citation` rendered as APA 7, MLA 9, IEEE or Chicago 17, with an account of
 what each style is for, its ordered elements and the punctuation that closes
 each, and the same entry shown four ways. `PipelineService.parse_reference()`
@@ -523,7 +523,7 @@ heading, bounded by appendix, index and glossary headings. Both workspace pages
 show their cached result when the upload control comes back empty after a page
 switch.
 
-**Removed** - the DOI lookup page, replaced by the style studio; the "Segments
+**Removed** - the DOI lookup page, replaced by the reference formatter; the "Segments
 set aside" panel, though the quarantine behind it still runs and still keeps
 non-bibliographic segments out of every export; `_has_bibliographic_density()`,
 dead since 2.0.0.

@@ -869,7 +869,7 @@ def _components() -> str:
     line-height: 1.6;
 }
 
-/* --- Style studio ----------------------------------------------------- */
+/* --- Reference formatter --------------------------------------------- */
 /* The nine core elements of an MLA entry, and the shorter element lists of
    the other styles, are the point of the page: a reader who sees the order
    and the punctuation together stops treating a style as arbitrary. */

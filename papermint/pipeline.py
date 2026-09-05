@@ -416,7 +416,7 @@ class PipelineService:
         """Parse one reference string a reader typed or pasted.
 
         The presentation layer may not import the parsers directly, so this is
-        the service's front door for the single-entry case: the style studio
+        the service's front door for the single-entry case: the reference formatter
         hands over a line copied out of a paper and gets back the same
         :class:`~papermint.models.Citation` a document scan would produce.
 

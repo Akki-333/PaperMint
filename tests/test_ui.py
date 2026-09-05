@@ -325,3 +325,13 @@ def test_a_remembered_page_number_is_clamped_into_the_new_range():
 
 def test_the_navigation_exposes_every_route():
     assert set(route_names()) == {"home", "extract", "batch", "styles", "about"}
+
+
+def test_navigation_uses_reference_formatter_title():
+    from papermint.ui.navigation import _ROUTES, build_pages
+
+    pages = build_pages()
+    assert pages["styles"].title == "Reference formatter"
+    styles_route = next(r for r in _ROUTES if r[0] == "styles")
+    assert styles_route[1] == "Reference formatter"
+    assert styles_route[3] == "reference-formatter"

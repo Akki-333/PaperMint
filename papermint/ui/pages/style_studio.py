@@ -1,4 +1,4 @@
-"""The style studio: set what was parsed, and explain the style it is set in.
+"""The reference formatter: set what was parsed, and explain the style it is set in.
 
 Everywhere else in PaperMint reads documents. This page writes: it takes the
 references the analyzer produced, or a single reference pasted by hand, and
@@ -340,13 +340,13 @@ def _analyzer_citations() -> list[Citation]:
 
 
 def render() -> None:
-    """Render the style studio page."""
+    """Render the reference formatter page."""
     restore(*_STICKY_KEYS)
     guides = _guides()
     st.session_state.setdefault(_STYLE_KEY, next(iter(guides)))
 
     page_header(
-        "Style studio",
+        "Reference formatter",
         "Set your references in APA, MLA, IEEE or Chicago, and see what each "
         "style actually asks for. Nothing is invented: an element the source "
         "never supplied is left out and named.",

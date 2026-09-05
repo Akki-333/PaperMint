@@ -171,9 +171,9 @@ def render() -> None:
             ),
             (
                 "quote",
-                "Style studio",
+                "Reference formatter",
                 (
-                    "Set what you extracted in APA, MLA, IEEE or Chicago, and read "
+                    "Format what you extracted in APA, MLA, IEEE or Chicago, and read "
                     "what each style asks for and why."
                 ),
                 "",
@@ -188,7 +188,7 @@ def render() -> None:
     with batch_col:
         st.page_link(page("batch"), label="Open batch processing")
     with style_col:
-        st.page_link(page("styles"), label="Open the style studio")
+        st.page_link(page("styles"), label="Open the reference formatter")
 
     section_header(
         "What happens to your document",

@@ -143,7 +143,7 @@ def render() -> None:
     section_header("Citation styles, explained")
     prose(
         "PaperMint recognises four styles when it reads a document and can set your "
-        "references in any of them afterwards, on the Style studio page. A style is "
+        "references in any of them afterwards, on the Reference formatter page. A style is "
         "not an arbitrary set of rules: each one is arranged around what its "
         "discipline needs to see first, and knowing that makes the rules easy to "
         "remember. MLA opens expanded because its structure differs most from the "
