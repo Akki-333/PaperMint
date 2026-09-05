@@ -79,6 +79,35 @@ class PipelineStage(str, Enum):
         }[self]
 
     @property
+    def detail(self) -> str:
+        """Return a one-line account of what this stage is doing.
+
+        The processing indicator shows this beneath the running step, so a
+        reader watching a long document is told what the work actually is
+        rather than being shown an unexplained spinner. It lives here, beside
+        the stage it describes, so the two cannot drift apart.
+        """
+        return {
+            PipelineStage.EXTRACT: (
+                "Decoding the file, then repairing the text: folding ligatures, "
+                "rejoining words split across a line, dropping running headers."
+            ),
+            PipelineStage.CHARACTERIZE: (
+                "Classifying the document and collecting every reference block "
+                "in it, by heading and by citation density."
+            ),
+            PipelineStage.PARSE: (
+                "Segmenting each block into entries and reading eight fields "
+                "from every one, validating each candidate before accepting it."
+            ),
+            PipelineStage.SUMMARIZE: (
+                "Scoring the narrative body by content-word frequency and "
+                "position, with the references left out."
+            ),
+            PipelineStage.DONE: "Finished.",
+        }[self]
+
+    @property
     def order(self) -> int:
         """Return the zero-based position of the stage in the sequence."""
         return list(PipelineStage).index(self)
@@ -332,11 +361,14 @@ class PipelineService:
                     "A bibliography block was located but no entry could be parsed from it."
                 )
             elif discarded:
+                # Reported in the processing notes rather than displayed as a
+                # list of rejected text. A reader wants their references, not a
+                # rubbish bin; the count is enough to explain a short list.
                 warnings.append(
-                    f"{len(discarded)} of {len(citations) + len(discarded)} segments were "
-                    "set aside because they carried no author, year, venue or identifier. "
-                    "They are usually appendix prose or section headings that share the "
-                    "reference list's numbering."
+                    f"{len(citations)} of {len(citations) + len(discarded)} segments carried "
+                    "an author, a year, a venue or an identifier and were read as "
+                    "references. The rest were appendix prose or section headings sharing "
+                    "the reference list's numbering, and were left out."
                 )
 
         # -- Stage 4: summarise ---------------------------------------------
@@ -379,6 +411,33 @@ class PipelineService:
             result.duration_ms,
         )
         return result
+
+    def parse_reference(self, text: str) -> Citation:
+        """Parse one reference string a reader typed or pasted.
+
+        The presentation layer may not import the parsers directly, so this is
+        the service's front door for the single-entry case: the style studio
+        hands over a line copied out of a paper and gets back the same
+        :class:`~papermint.models.Citation` a document scan would produce.
+
+        Args:
+            text: One reference, as written.
+
+        Returns:
+            The parsed citation, with unreadable fields left empty.
+
+        Raises:
+            ParsingError: If the text is blank.
+        """
+        if not text or not text.strip():
+            raise ParsingError(
+                "There is nothing to parse.",
+                remedy="Paste a single reference, such as one line from a Works Cited page.",
+            )
+
+        segment = text.strip()
+        style, _confidence = detect_style([segment])
+        return parse_citation(segment, style)
 
     def process_batch(
         self,
