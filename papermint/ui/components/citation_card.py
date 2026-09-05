@@ -40,12 +40,110 @@ def citation_preview_text(citation: Citation) -> str:
     )
 
 
-def _card_markup(citation: Citation, index: int) -> str:
+#: How many cards into a list the entrance cascade keeps growing. Past this the
+#: delay is held constant, so paging to entry 80 does not mean waiting four
+#: seconds for the last card to arrive.
+_MAX_REVEAL_STEP = 10
+
+#: The value shown where part of a reference's identity could not be read.
+_ABSENT = '<span class="pm-field-absent">Not found</span>'
+
+
+def _field(label: str, value: str, *, value_class: str = "") -> str:
+    """Render one aligned label-and-value row.
+
+    Args:
+        label: The field name, shown in the left column.
+        value: The value, already escaped or already markup.
+        value_class: Extra classes for the value cell.
+
+    Returns:
+        The row's HTML.
+    """
+    classes = f"pm-field-val {value_class}".strip()
+    return (
+        '<div class="pm-field">'
+        f'<dt class="pm-field-key">{esc(label)}</dt>'
+        f'<dd class="{classes}">{value}</dd>'
+        "</div>"
+    )
+
+
+def _venue_row(citation: Citation) -> tuple[str, str] | None:
+    """Return the label and value for the entry's venue.
+
+    The label follows what was actually parsed, so a chapter says "In" and a
+    monograph says "Publisher" rather than all three being flattened into one
+    ambiguous "Journal".
+
+    Args:
+        citation: The citation being rendered.
+
+    Returns:
+        A ``(label, value)`` pair, or None when no venue was found.
+    """
+    if citation.journal:
+        return "Journal", citation.journal
+    if citation.booktitle:
+        return "In", citation.booktitle
+    if citation.publisher:
+        return "Publisher", citation.publisher
+    return None
+
+
+def _field_rows(citation: Citation) -> str:
+    """Build the aligned field grid for one citation.
+
+    Title, authors and year always occupy a row, found or not: they are the
+    identity of a reference, and a card that quietly dropped an absent one
+    would leave the reader to notice the gap for themselves. Everything else
+    appears only when there is something to show.
+
+    Args:
+        citation: The citation being rendered.
+
+    Returns:
+        The grid's HTML.
+    """
+    title_class = "is-title" if citation.is_parsed else "is-title is-unparsed"
+    rows = [
+        _field("Title", esc(citation.display_title), value_class=title_class),
+        _field("Authors", esc(citation.author_string) or _ABSENT),
+        _field("Year", esc(citation.year) or _ABSENT, value_class="is-mono"),
+    ]
+
+    venue = _venue_row(citation)
+    if venue is not None:
+        rows.append(_field(venue[0], f"<em>{esc(venue[1])}</em>"))
+        if citation.publisher and venue[0] != "Publisher":
+            rows.append(_field("Publisher", esc(citation.publisher)))
+    if citation.volume:
+        rows.append(_field("Volume", esc(citation.volume), value_class="is-mono"))
+    if citation.issue:
+        rows.append(_field("Issue", esc(citation.issue), value_class="is-mono"))
+    if citation.pages:
+        rows.append(_field("Pages", esc(citation.pages), value_class="is-mono"))
+
+    if citation.doi_url:
+        label = citation.doi or citation.url
+        link = (
+            f'<a class="pm-card-link" href="{esc(citation.doi_url)}" '
+            'target="_blank" rel="noopener noreferrer">'
+            f"{esc(clamp(label, 64))}{icon('external', size=12)}</a>"
+        )
+        rows.append(_field("DOI" if citation.doi else "Link", link))
+
+    rows.append(_field("Type", esc(citation.entry_type.label)))
+    return f'<dl class="pm-fields">{"".join(rows)}</dl>'
+
+
+def _card_markup(citation: Citation, index: int, *, reveal: int = 0) -> str:
     """Build the static markup for one citation.
 
     Args:
         citation: The citation to render.
         index: The 1-based position shown in the gutter.
+        reveal: This card's place in the entrance cascade.
 
     Returns:
         The card's HTML.
@@ -53,9 +151,6 @@ def _card_markup(citation: Citation, index: int) -> str:
     band = citation.confidence_band
     colour = band_color(band)
     fill = band_fill(band)
-
-    title_class = "pm-card-title" if citation.is_parsed else "pm-card-title is-unparsed"
-    title = esc(citation.display_title)
 
     badges: list[str] = []
     if citation.style is not CitationStyle.UNKNOWN:
@@ -67,30 +162,6 @@ def _card_markup(citation: Citation, index: int) -> str:
         f"{esc(band.label)} {citation.confidence:.0%}</span>"
     )
 
-    byline = dot_join(esc(citation.author_string), esc(citation.year))
-    byline_html = f'<div class="pm-card-authors">{byline}</div>' if byline else ""
-
-    venue_parts: list[str] = []
-    if citation.journal:
-        venue_parts.append(f"<em>{esc(citation.journal)}</em>")
-    elif citation.booktitle:
-        venue_parts.append(f"<em>{esc(citation.booktitle)}</em>")
-    if citation.locator:
-        venue_parts.append(esc(citation.locator))
-    if citation.publisher and citation.publisher != citation.journal:
-        venue_parts.append(esc(citation.publisher))
-    venue_parts.append(esc(citation.entry_type.label))
-    meta_html = f'<div class="pm-card-meta">{" · ".join(venue_parts)}</div>'
-
-    link_html = ""
-    if citation.doi_url:
-        label = citation.doi or citation.url
-        link_html = (
-            f'<a class="pm-card-link" href="{esc(citation.doi_url)}" '
-            'target="_blank" rel="noopener noreferrer">'
-            f"{icon('external', size=13)}{esc(clamp(label, 72))}</a>"
-        )
-
     missing_html = ""
     if citation.needs_review and citation.missing_fields:
         missing_html = (
@@ -98,15 +169,15 @@ def _card_markup(citation: Citation, index: int) -> str:
             f"Not found: {esc(', '.join(citation.missing_fields))}</div>"
         )
 
+    step = min(max(reveal, 0), _MAX_REVEAL_STEP)
     return (
-        f'<div class="pm-card" style="--pm-band:{colour};--pm-band-fill:{fill};">'
+        f'<div class="pm-card" style="--pm-band:{colour};--pm-band-fill:{fill};'
+        f'--pm-meter:{citation.confidence:.0%};--pm-step:{step};">'
         f'<div class="pm-card-index">{index:02d}</div>'
         "<div>"
-        '<div class="pm-card-head">'
-        f'<div class="{title_class}">{title}</div>'
-        f'<div class="pm-chip-row">{"".join(badges)}</div>'
-        "</div>"
-        f"{byline_html}{meta_html}{link_html}{missing_html}"
+        f'<div class="pm-card-head"><div class="pm-chip-row">{"".join(badges)}</div></div>'
+        '<div class="pm-meter" role="presentation"><span class="pm-meter-fill"></span></div>'
+        f"{_field_rows(citation)}{missing_html}"
         "</div>"
         "</div>"
     )
@@ -194,6 +265,7 @@ def render_citation_card(
     scope: str = "main",
     editable: bool = False,
     uid: str | None = None,
+    reveal: int = 0,
 ) -> Citation | None:
     """Render a single citation as a card.
 
@@ -204,19 +276,20 @@ def render_citation_card(
             page without key collisions.
         editable: Show the inline editor and BibTeX actions.
         uid: Stable identifier for widget keys; defaults to the index.
+        reveal: This card's place in the entrance cascade.
 
     Returns:
         The updated citation when the reader saved an edit, otherwise None.
     """
     if not editable:
-        render(_card_markup(citation, index))
+        render(_card_markup(citation, index, reveal=reveal))
         return None
 
     key = f"{scope}-{uid if uid is not None else index}"
     result: Citation | None = None
 
     with st.container(key=f"pmcard-{key}"):
-        render(_card_markup(citation, index))
+        render(_card_markup(citation, index, reveal=reveal))
 
         actions, spacer = st.columns([3, 5])
         with actions:
@@ -262,6 +335,7 @@ def render_citation_list(
             scope=scope,
             editable=editable,
             uid=uid,
+            reveal=offset,
         )
         if updated is not None:
             edit = (offset, updated)

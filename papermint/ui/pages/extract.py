@@ -20,7 +20,7 @@ import streamlit as st
 from papermint.config import CITATIONS_PER_PAGE, RAW_TEXT_PREVIEW_LINES
 from papermint.errors import PaperMintError
 from papermint.models import Citation, DocumentKind, ExtractionResult
-from papermint.pipeline import DocumentInput, PipelineOptions, PipelineService
+from papermint.pipeline import DocumentInput, PipelineOptions, PipelineService, PipelineStage
 from papermint.ui.components.citation_card import render_citation_list
 from papermint.ui.components.export_panel import render_export_panel, safe_filename
 from papermint.ui.components.file_uploader import (
@@ -40,13 +40,34 @@ from papermint.ui.components.primitives import (
     source_block,
     stat_row,
 )
-from papermint.ui.components.progress import PipelineStepper
+from papermint.ui.components.progress import PipelineStepper, render_stepper
+from papermint.ui.state import forget, restore, restore_within, retain
 
 logger = logging.getLogger(__name__)
 
 _SIGNATURE_KEY = "pm_extract_signature"
 _RESULT_KEY = "pm_extract_result"
 _CITATIONS_KEY = "pm_extract_citations"
+
+#: Widget values mirrored across page switches. Streamlit collects the state of
+#: any widget it does not draw on a given run, so without this a glance at the
+#: About page emptied the search box, the sort order and the reading mode.
+_STICKY_KEYS = (
+    "pm_summary_len",
+    "pm_reading_mode",
+    "pm_cit_search",
+    "pm_cit_sort",
+    "pm_cit_review",
+    "pm_cit_page",
+)
+
+#: Starting values, seeded into session state rather than passed to the widgets
+#: as ``value=`` or ``index=``. Supplying both a literal default and a
+#: session-state value makes Streamlit warn that the widget was set twice.
+_DEFAULTS: dict[str, object] = {
+    "pm_summary_len": 5,
+    "pm_cit_sort": "Document order",
+}
 
 #: The reader's override of the classifier, mapped to
 #: ``(force_parse, force_prose)``. Detection is autonomous, so "Detect
@@ -166,34 +187,22 @@ def _render_verdict(result: ExtractionResult, citations: list[Citation]) -> None
         citations: The current citation list, including any reader edits.
     """
     if citations:
-        set_aside = (
-            [
-                (
-                    f"{result.discarded_count} of {result.segment_count} segments were set "
-                    "aside because they carried no author, year, venue or identifier. They "
-                    "are listed under Segments set aside, and excluded from every export."
-                ),
-            ]
-            if result.discarded
-            else None
-        )
         notice(
             f"{len(citations)} references extracted from {result.source_filename}",
             f"{result.document_kind.label} · {result.detection_method.label}.",
             tone="positive",
-            details=set_aside,
         )
         return
 
     if result.discarded:
         notice(
             "This document does not appear to contain a bibliography",
-            f"A block of {result.discarded_count} segments was located, but not one of "
-            "them carried an author, a year, a venue or an identifier. Rather than "
-            "present prose as though it were a reference list, PaperMint reported none.",
+            "A block of text was located where a reference list usually sits, but not "
+            "one segment in it carried an author, a year, a venue or an identifier. "
+            "Rather than present prose as though it were a reference list, PaperMint "
+            "reported none.",
             tone="caution",
             details=[
-                "Every segment is listed below so you can check the decision for yourself.",
                 (
                     "If this really is a reference list, set How to read this document "
                     'to "Every line is a reference" under Options.'
@@ -224,29 +233,6 @@ def _render_verdict(result: ExtractionResult, citations: list[Citation]) -> None
         "individual references.",
         tone="caution",
     )
-
-
-def _render_discarded(result: ExtractionResult) -> None:
-    """List the segments the pipeline declined to treat as citations.
-
-    The segments are shown rather than silently dropped. Rejection is a
-    judgement, and a reader who can see what was rejected can tell a genuine
-    appendix heading from a reference the parser failed to read.
-
-    Args:
-        result: The processed document.
-    """
-    if not result.discarded:
-        return
-
-    with st.expander(f"Segments set aside ({result.discarded_count})", expanded=False):
-        prose(
-            "These came from the same block as the references but carry no author, "
-            "year, venue or identifier. They are usually appendix prose, equations or "
-            "section headings that share the reference list's numbering. None of them "
-            "appears in an export."
-        )
-        source_block("\n\n".join(entry.raw_text for entry in result.discarded))
 
 
 def _render_headline_stats(result: ExtractionResult, citations: list[Citation]) -> None:
@@ -378,7 +364,15 @@ def _render_citations_tab(citations: list[Citation]) -> None:
     total_pages = max(1, -(-len(rows) // CITATIONS_PER_PAGE))
     page = 1
     if total_pages > 1:
-        page = st.slider("Page", 1, total_pages, 1, key="pm_cit_page", help=f"{len(rows)} entries")
+        # Filtering can shrink the list under the reader's feet. A remembered
+        # page beyond the new last one has to be pulled back into range before
+        # the slider sees it, whether it came from this session or from the
+        # shadow copy that survived a page switch.
+        current = st.session_state.get("pm_cit_page")
+        if isinstance(current, int) and current > total_pages:
+            st.session_state["pm_cit_page"] = total_pages
+        restore_within("pm_cit_page", 1, total_pages)
+        page = st.slider("Page", 1, total_pages, key="pm_cit_page", help=f"{len(rows)} entries")
     window = rows[(page - 1) * CITATIONS_PER_PAGE : page * CITATIONS_PER_PAGE]
 
     st.caption(
@@ -427,6 +421,11 @@ def _render_summary_tab(result: ExtractionResult) -> None:
         )
 
     section_header("How this document was read")
+    # The same four stages the run animated through, now at rest. It is drawn
+    # without motion because this tab is redrawn on every interaction, and a
+    # settled fact that re-animates becomes a distraction.
+    render_stepper(PipelineStage.DONE, animated=False)
+    st.write("")
     definition_list(
         [
             ("Document type", result.document_kind.label),
@@ -485,62 +484,14 @@ def _render_source_tab(result: ExtractionResult) -> None:
 # ---------------------------------------------------------------------------
 
 
-def render() -> None:
-    """Render the document analyzer page."""
-    page_header(
-        "Document analyzer",
-        "Upload a paper, thesis or bibliography. PaperMint isolates its "
-        "references, parses each one into structured fields, and reports how "
-        "much of every entry it could actually read.",
-        eyebrow="Analyze",
-        eyebrow_icon="document",
-    )
+def _render_results(result: ExtractionResult, citations: list[Citation]) -> None:
+    """Render the verdict, the headline numbers and the three result tabs.
 
-    uploaded_file = render_file_uploader(key="extract_upload", accept_multiple=False)
-
-    if uploaded_file is None:
-        empty_state(
-            "Ready when you are",
-            "Drop a document above to begin. Nothing leaves this machine except "
-            "an optional DOI lookup.",
-            icon_name="document",
-        )
-        return
-
-    with st.expander("Options"):
-        summary_sentences = st.slider(
-            "Summary length",
-            min_value=3,
-            max_value=10,
-            value=5,
-            help="Number of sentences in the document summary.",
-            key="pm_summary_len",
-        )
-        reading = st.radio(
-            "How to read this document",
-            options=list(_READING_MODES),
-            index=0,
-            help=(
-                "PaperMint classifies the document itself. Override this only when "
-                "the verdict below is wrong."
-            ),
-            key="pm_reading_mode",
-        )
-
-    force_parse, force_prose = _READING_MODES[reading]
-    options = PipelineOptions(
-        force_parse=force_parse,
-        force_prose=force_prose,
-        summary_sentences=summary_sentences,
-    )
-    result = _ensure_result(uploaded_file, options)
-    if result is None:
-        return
-
-    citations: list[Citation] = st.session_state.get(_CITATIONS_KEY, [])
-
+    Args:
+        result: The processed document.
+        citations: The current citation list, including any reader edits.
+    """
     _render_verdict(result, citations)
-    _render_discarded(result)
     st.write("")
     _render_headline_stats(result, citations)
     st.write("")
@@ -560,12 +511,102 @@ def render() -> None:
             key_prefix="extract",
             default_name=safe_filename(result.source_filename.rsplit(".", 1)[0]),
         )
-    else:
-        tab_summary, tab_source = st.tabs(["Summary", "Source text"])
-        with tab_summary:
-            _render_summary_tab(result)
-        with tab_source:
-            _render_source_tab(result)
+        st.caption(
+            "These references stay loaded while you move around the application. "
+            "Open Style studio to set them in APA, MLA, IEEE or Chicago."
+        )
+        return
+
+    tab_summary, tab_source = st.tabs(["Summary", "Source text"])
+    with tab_summary:
+        _render_summary_tab(result)
+    with tab_source:
+        _render_source_tab(result)
+
+
+def _render_restored(result: ExtractionResult) -> None:
+    """Explain that the results on screen came from a document already read.
+
+    The upload control cannot hold its file across a page switch, because
+    Streamlit collects the state of any widget it did not draw. The parsed
+    result outlives that, so it is shown rather than thrown away, and the
+    reader is told plainly why the dropzone above it is empty.
+
+    Args:
+        result: The cached result being redisplayed.
+    """
+    left, right = st.columns([4, 1])
+    left.caption(
+        f"Showing the last document you analysed, {result.source_filename}. "
+        "Drop another file above to replace it."
+    )
+    if right.button("Start over", use_container_width=True, key="pm_extract_reset"):
+        forget(_SIGNATURE_KEY, _RESULT_KEY, _CITATIONS_KEY, *_STICKY_KEYS)
+        st.rerun()
+
+
+def render() -> None:
+    """Render the document analyzer page."""
+    restore(*_STICKY_KEYS)
+    for key, value in _DEFAULTS.items():
+        st.session_state.setdefault(key, value)
+
+    page_header(
+        "Document analyzer",
+        "Upload a paper, thesis or bibliography. PaperMint collects every "
+        "reference block it can find, parses each entry into structured "
+        "fields, and reports how much of every one it could actually read.",
+        eyebrow="Analyze",
+        eyebrow_icon="document",
+    )
+
+    uploaded_file = render_file_uploader(key="extract_upload", accept_multiple=False)
+    cached: ExtractionResult | None = st.session_state.get(_RESULT_KEY)
+
+    if uploaded_file is None:
+        if cached is None:
+            empty_state(
+                "Ready when you are",
+                "Drop a document above to begin. Everything is processed on this "
+                "machine; nothing is uploaded anywhere.",
+                icon_name="document",
+            )
+            return
+        _render_restored(cached)
+        _render_results(cached, st.session_state.get(_CITATIONS_KEY, []))
+        retain(*_STICKY_KEYS)
+        return
+
+    with st.expander("Options"):
+        summary_sentences = st.slider(
+            "Summary length",
+            min_value=3,
+            max_value=10,
+            help="Number of sentences in the document summary.",
+            key="pm_summary_len",
+        )
+        reading = st.radio(
+            "How to read this document",
+            options=list(_READING_MODES),
+            help=(
+                "PaperMint classifies the document itself. Override this only when "
+                "the verdict below is wrong."
+            ),
+            key="pm_reading_mode",
+        )
+
+    force_parse, force_prose = _READING_MODES[reading]
+    options = PipelineOptions(
+        force_parse=force_parse,
+        force_prose=force_prose,
+        summary_sentences=summary_sentences,
+    )
+    result = _ensure_result(uploaded_file, options)
+    if result is None:
+        return
+
+    _render_results(result, st.session_state.get(_CITATIONS_KEY, []))
+    retain(*_STICKY_KEYS)
 
 
 __all__ = ["render"]

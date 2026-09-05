@@ -1,12 +1,22 @@
-"""The processing stepper.
+"""The processing flow: what the pipeline is doing, while it does it.
 
-The stepper reports which pipeline stage is running. It writes into a single
-placeholder and updates that placeholder in place, so a run leaves one widget
+The indicator reports which stage is running as a chain of nodes joined by a
+rail that fills as the run advances. It writes into a single placeholder and
+replaces that placeholder's contents in place, so a run leaves one widget
 behind rather than one per stage.
 
 It is driven by :class:`papermint.pipeline.PipelineStage`, which means the
 displayed steps can never drift out of step with the stages the service
-actually runs.
+actually runs, and each step's explanatory line comes from that stage's own
+``detail`` property rather than from a copy kept here.
+
+**Why the motion is built the way it is.** Streamlit replaces the whole DOM
+node on every placeholder write, so a CSS *transition* on the rail would never
+play: the new node would simply start at its new width. The rail therefore
+carries a keyframe animation running from the previous stage's position to the
+current one, and the stepper remembers where it had reached. Everything else is
+either a continuous loop, which does not care about being remounted, or a
+one-shot entrance.
 """
 
 from __future__ import annotations
@@ -29,7 +39,7 @@ _VISIBLE_STAGES: tuple[PipelineStage, ...] = (
     PipelineStage.SUMMARIZE,
 )
 
-#: The icon shown beside each stage.
+#: The icon shown inside each stage's node.
 _STAGE_ICON: dict[PipelineStage, str] = {
     PipelineStage.EXTRACT: "document",
     PipelineStage.CHARACTERIZE: "search",
@@ -38,29 +48,86 @@ _STAGE_ICON: dict[PipelineStage, str] = {
 }
 
 
-def _stepper_markup(current: PipelineStage) -> str:
-    """Build the markup for the stepper at a given stage.
+def _progress(stage: PipelineStage) -> float:
+    """Return how far along the rail a stage sits, as a percentage.
+
+    A running stage fills the rail to the centre of its own node rather than
+    past it, so the leading edge and the pulsing node agree about where the
+    work has reached.
 
     Args:
+        stage: The stage now running, or ``DONE``.
+
+    Returns:
+        A percentage between 0 and 100.
+    """
+    if stage is PipelineStage.DONE:
+        return 100.0
+    if stage not in _VISIBLE_STAGES:
+        return 0.0
+    position = _VISIBLE_STAGES.index(stage)
+    return (position + 0.5) / len(_VISIBLE_STAGES) * 100.0
+
+
+def _state(stage: PipelineStage, current: PipelineStage) -> str:
+    """Classify one step against the stage now running.
+
+    Args:
+        stage: The step being drawn.
         current: The stage now running, or ``DONE``.
 
     Returns:
-        The stepper's HTML.
+        The CSS state class for that step.
     """
-    pills: list[str] = []
+    if current is PipelineStage.DONE or stage.order < current.order:
+        return "is-done"
+    if stage is current:
+        return "is-active"
+    return "is-waiting"
+
+
+def _flow_markup(current: PipelineStage, *, previous: float = 0.0, animated: bool = True) -> str:
+    """Build the markup for the flow at a given stage.
+
+    Args:
+        current: The stage now running, or ``DONE``.
+        previous: Where the rail had already reached, as a percentage, so the
+            fill animates forward from there rather than from zero.
+        animated: Run the entrance and rail animations and show the live status
+            line. Set False for the motionless record of a finished run.
+
+    Returns:
+        The flow's HTML.
+    """
+    target = _progress(current)
+    steps: list[str] = []
     for position, stage in enumerate(_VISIBLE_STAGES):
-        if current is PipelineStage.DONE or stage.order < current.order:
-            state, glyph = "is-done", icon("check", size=13)
-        elif stage is current:
-            state, glyph = "is-active", icon(_STAGE_ICON[stage], size=13)
-        else:
-            state, glyph = "", icon(_STAGE_ICON[stage], size=13)
+        state = _state(stage, current)
+        glyph = icon("check", size=14) if state == "is-done" else icon(_STAGE_ICON[stage], size=14)
+        steps.append(
+            f'<li class="pm-flow-step {state}" style="--pm-step:{position};">'
+            f'<span class="pm-flow-node">{glyph}</span>'
+            f'<span class="pm-flow-name">{esc(stage.label)}</span>'
+            "</li>"
+        )
 
-        pills.append(f'<span class="pm-step {state}">{glyph}{esc(stage.label)}</span>')
-        if position < len(_VISIBLE_STAGES) - 1:
-            pills.append('<span class="pm-step-rule"></span>')
+    status = ""
+    if animated and current is not PipelineStage.DONE:
+        status = (
+            '<div class="pm-flow-status">'
+            '<span class="pm-flow-beacon"></span>'
+            f'<span class="pm-flow-said"><b>{esc(current.label)}</b> {esc(current.detail)}</span>'
+            "</div>"
+        )
 
-    return f'<div class="pm-steps">{"".join(pills)}</div>'
+    classes = "pm-flow is-live" if animated else "pm-flow"
+    return (
+        f'<div class="{classes}" style="--pm-from:{previous:.1f}%;--pm-to:{target:.1f}%;">'
+        '<div class="pm-flow-rail"><div class="pm-flow-fill"></div></div>'
+        f'<ol class="pm-flow-steps">{"".join(steps)}</ol>'
+        f"{status}"
+        "</div>"
+    )
 
 
 @dataclass(slots=True)
@@ -71,31 +138,39 @@ class PipelineStepper:
     indicator advances as the run proceeds.
 
     Attributes:
-        slot: The placeholder the stepper draws into.
+        slot: The placeholder the flow draws into.
+        reached: How far along the rail the last redraw left the fill, so the
+            next one animates on from there instead of restarting at zero.
     """
 
     slot: Any = field(default_factory=st.empty)
+    reached: float = 0.0
 
     def update(self, stage: PipelineStage) -> None:
-        """Redraw the stepper for the given stage.
+        """Redraw the flow for the given stage.
 
         Args:
             stage: The stage that has just started.
         """
-        self.slot.html(compact(_stepper_markup(stage)))
+        self.slot.html(compact(_flow_markup(stage, previous=self.reached)))
+        self.reached = _progress(stage)
 
     def clear(self) -> None:
-        """Remove the stepper from the page once a run has finished."""
+        """Remove the flow from the page once a run has finished."""
         self.slot.empty()
 
 
-def render_stepper(current: PipelineStage) -> None:
-    """Render a one-shot stepper at a fixed stage.
+def render_stepper(current: PipelineStage, *, animated: bool = True) -> None:
+    """Render a one-shot flow at a fixed stage.
 
     Args:
         current: The stage to display as active.
+        animated: Whether to play the entrance animation. A finished run's
+            record is drawn motionless, because it is redrawn on every
+            interaction with the page and repeating the motion would turn a
+            settled fact into a distraction.
     """
-    st.html(compact(_stepper_markup(current)))
+    st.html(compact(_flow_markup(current, previous=100.0, animated=animated)))
 
 
 __all__ = ["PipelineStepper", "render_stepper"]

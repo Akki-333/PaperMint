@@ -45,6 +45,14 @@ _BEHAVIOURS: tuple[tuple[str, str], ...] = (
         ),
     ),
     (
+        "Several reference lists in one file",
+        (
+            "Collects every block it can find, whether that is a list per chapter, "
+            "separate primary and secondary sources, or a further-reading list after "
+            "the references. An appendix or index between them is left in the body."
+        ),
+    ),
+    (
         "General document",
         (
             "Reports that no bibliography exists and produces a summary instead. No "
@@ -162,11 +170,11 @@ def render() -> None:
                 "",
             ),
             (
-                "search",
-                "DOI lookup",
+                "quote",
+                "Style studio",
                 (
-                    "Resolve an identifier against CrossRef for publisher-supplied "
-                    "metadata at full confidence."
+                    "Set what you extracted in APA, MLA, IEEE or Chicago, and read "
+                    "what each style asks for and why."
                 ),
                 "",
             ),
@@ -174,13 +182,13 @@ def render() -> None:
     )
 
     st.write("")
-    analyze_col, batch_col, doi_col = st.columns(3)
+    analyze_col, batch_col, style_col = st.columns(3)
     with analyze_col:
         st.page_link(page("extract"), label="Open the analyzer")
     with batch_col:
         st.page_link(page("batch"), label="Open batch processing")
-    with doi_col:
-        st.page_link(page("doi"), label="Open DOI lookup")
+    with style_col:
+        st.page_link(page("styles"), label="Open the style studio")
 
     section_header(
         "What happens to your document",

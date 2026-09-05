@@ -15,11 +15,14 @@ from __future__ import annotations
 import streamlit as st
 
 from papermint.config import APP_DESCRIPTION, APP_NAME, APP_REPO_URL, APP_VERSION
+from papermint.formatters.reference_formatter import style_guides
+from papermint.models import CitationStyle
 from papermint.pipeline import PipelineStage, accepted_formats
 from papermint.ui.components.primitives import (
     chip_row,
     definition_list,
     page_header,
+    prose,
     section_header,
     tile_grid,
 )
@@ -32,8 +35,9 @@ _STAGE_DETAIL: dict[PipelineStage, str] = {
         "and page numbers are removed."
     ),
     PipelineStage.CHARACTERIZE: (
-        "Classifies the document and isolates its bibliography, by heading, by "
-        "title page, or by scanning backwards for citation density."
+        "Classifies the document and collects every reference block in it, by "
+        "heading, by title page, or by scanning backwards for citation density. "
+        "An appendix or index between two lists stays in the body."
     ),
     PipelineStage.PARSE: (
         "Segments the block into entries, detects the citation style, and "
@@ -53,7 +57,6 @@ _STACK: tuple[tuple[str, str], ...] = (
     ("book", "python-docx"),
     ("grid", "python-pptx"),
     ("quote", "spaCy"),
-    ("search", "CrossRef"),
     ("hash", "pandas"),
     ("download", "ReportLab"),
 )
@@ -82,19 +85,20 @@ def render() -> None:
             ),
             (
                 "search",
-                "Finds the bibliography",
+                "Finds every bibliography",
                 (
-                    "Matches a references heading, recognises a bibliography title "
-                    "page, or locates the block by citation density."
+                    "Matches references headings, recognises a bibliography title "
+                    "page, and locates unheaded blocks by citation density. A file "
+                    "with several reference lists yields all of them."
                 ),
                 "",
             ),
             (
                 "quote",
-                "Recognises four styles",
+                "Reads and writes four styles",
                 (
-                    "APA, MLA, IEEE and Chicago, each scored so you can see how "
-                    "confident the classification is."
+                    "APA, MLA, IEEE and Chicago are recognised on the way in and "
+                    "rendered on the way out, with each style explained below."
                 ),
                 "",
             ),
@@ -135,6 +139,40 @@ def render() -> None:
             for index, (stage, detail) in enumerate(_STAGE_DETAIL.items(), start=1)
         ]
     )
+
+    section_header("Citation styles, explained")
+    prose(
+        "PaperMint recognises four styles when it reads a document and can set your "
+        "references in any of them afterwards, on the Style studio page. A style is "
+        "not an arbitrary set of rules: each one is arranged around what its "
+        "discipline needs to see first, and knowing that makes the rules easy to "
+        "remember. MLA opens expanded because its structure differs most from the "
+        "others."
+    )
+    for guide in style_guides():
+        with st.expander(
+            f"{guide.short_name} for {guide.disciplines.lower()}",
+            expanded=guide.style is CitationStyle.MLA,
+        ):
+            prose(guide.principle)
+            st.write("")
+            definition_list(
+                [
+                    ("Full name", guide.name),
+                    ("Reference list", guide.list_heading),
+                    ("Ordering", guide.ordering),
+                    ("Citing in text", guide.in_text),
+                    ("A finished entry", guide.sample),
+                ]
+            )
+            st.caption("The elements of an entry, in order, with the punctuation that closes each")
+            definition_list(
+                [(f"{n}. {name}", rule) for n, (name, rule) in enumerate(guide.elements, start=1)]
+            )
+            st.caption("What sets it apart")
+            definition_list(
+                [(f"Detail {n}", detail) for n, detail in enumerate(guide.distinctives, start=1)]
+            )
 
     section_header("Built with")
     chip_row(list(_STACK))

@@ -16,6 +16,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from papermint.models import Author, Citation, CitationStyle, ConfidenceBand
+from papermint.pipeline import PipelineStage
 from papermint.ui.components.citation_card import (
     _card_markup,
     _parse_author_field,
@@ -23,6 +24,7 @@ from papermint.ui.components.citation_card import (
 )
 from papermint.ui.components.export_panel import EXPORT_FORMATS, safe_filename
 from papermint.ui.components.file_uploader import read_upload, upload_signature
+from papermint.ui.components.progress import _flow_markup
 from papermint.ui.html import clamp, compact, dot_join, esc
 from papermint.ui.icons import available_icons, icon
 from papermint.ui.navigation import route_names
@@ -122,8 +124,37 @@ def test_card_shows_every_parsed_field(citation):
     assert "Machine learning in citation parsing" in markup
     assert "Smith, J. A." in markup
     assert "Journal of Bibliometrics" in markup
-    assert "vol. 15, no. 2, pp. 103-115" in markup
+    assert ">15</dd>" in markup
+    assert ">2</dd>" in markup
+    assert ">103-115</dd>" in markup
     assert "10.1016/j.jbi.2020.01.002" in markup
+
+
+def test_card_labels_every_field_it_shows(citation):
+    markup = _card_markup(citation, 1)
+    for label in ("Title", "Authors", "Year", "Journal", "Volume", "Issue", "Pages", "DOI", "Type"):
+        assert f">{label}</dt>" in markup, f"the {label} row lost its label"
+
+
+def test_card_keeps_a_labelled_row_for_an_absent_identity_field():
+    # Title, authors and year are the identity of a reference. A card that
+    # dropped an absent one would leave the reader to notice the gap.
+    sparse = Citation(title="Only a title", confidence=0.2, raw_text="x")
+    markup = _card_markup(sparse, 1)
+    assert ">Authors</dt>" in markup
+    assert ">Year</dt>" in markup
+    assert markup.count("pm-field-absent") == 2
+
+
+def test_card_carries_its_coverage_as_a_meter(citation):
+    assert "--pm-meter:90%" in _card_markup(citation, 1)
+
+
+def test_cards_stagger_their_entrance():
+    first = _card_markup(Citation(raw_text="a"), 1, reveal=0)
+    later = _card_markup(Citation(raw_text="b"), 2, reveal=3)
+    assert "--pm-step:0" in first
+    assert "--pm-step:3" in later
 
 
 def test_card_escapes_document_text():
@@ -222,5 +253,75 @@ def test_every_page_renders_without_error(route: str):
     assert not harness.exception, [str(e.value) for e in harness.exception]
 
 
+# --- Processing flow -------------------------------------------------------
+
+
+def test_the_flow_separates_done_active_and_waiting_stages():
+    markup = _flow_markup(PipelineStage.PARSE, previous=25.0)
+    assert "is-done" in markup
+    assert "is-active" in markup
+    assert "is-waiting" in markup
+
+
+def test_the_flow_animates_on_from_where_it_had_reached():
+    # Streamlit remounts the node on every write, so the rail has to be told
+    # where it was or the fill would restart from zero at every stage.
+    markup = _flow_markup(PipelineStage.PARSE, previous=37.5)
+    assert "--pm-from:37.5%" in markup
+    assert "--pm-to:62.5%" in markup
+
+
+def test_the_running_flow_says_what_the_stage_is_doing():
+    markup = _flow_markup(PipelineStage.CHARACTERIZE)
+    assert "Locating bibliography" in markup
+    assert "collecting every reference block" in markup
+
+
+def test_a_finished_flow_is_still_and_silent():
+    markup = _flow_markup(PipelineStage.DONE, animated=False)
+    assert "pm-flow-status" not in markup
+    assert "is-live" not in markup
+    assert markup.count("is-done") == 4
+
+
+# --- State that survives a page switch --------------------------------------
+
+#: A page that draws one widget, restoring and retaining it around the draw.
+_STICKY_SCRIPT = """
+import streamlit as st
+from papermint.ui.state import restore, retain
+
+restore("pm_demo")
+st.session_state.setdefault("pm_demo", "typed")
+retain("pm_demo")
+"""
+
+#: A page that only restores a bounded integer, as the page slider does.
+_CLAMP_SCRIPT = """
+from papermint.ui.state import restore_within
+
+restore_within("pm_page", 1, 3)
+"""
+
+
+def test_a_widget_value_outlives_the_loss_of_its_key():
+    # Streamlit collects the state of any widget it did not draw on a run,
+    # which is what emptied the analyzer when the reader visited another page.
+    harness = AppTest.from_string(_STICKY_SCRIPT, default_timeout=60)
+    harness.run()
+    assert harness.session_state["_pm_kept_pm_demo"] == "typed"
+
+    del harness.session_state["pm_demo"]
+    harness.run()
+    assert harness.session_state["pm_demo"] == "typed"
+
+
+def test_a_remembered_page_number_is_clamped_into_the_new_range():
+    harness = AppTest.from_string(_CLAMP_SCRIPT, default_timeout=60)
+    harness.session_state["_pm_kept_pm_page"] = 9
+    harness.run()
+    assert harness.session_state["pm_page"] == 3
+
+
 def test_the_navigation_exposes_every_route():
-    assert set(route_names()) == {"home", "extract", "batch", "doi", "about"}
+    assert set(route_names()) == {"home", "extract", "batch", "styles", "about"}

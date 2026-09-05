@@ -23,7 +23,7 @@ _ROUTES: tuple[tuple[str, str, str, str, str], ...] = (
     ("home", "Dashboard", ":material/home:", "home", "Overview"),
     ("extract", "Document analyzer", ":material/description:", "analyze", "Workspace"),
     ("batch", "Batch processing", ":material/layers:", "batch", "Workspace"),
-    ("doi", "DOI lookup", ":material/search:", "doi-lookup", "Tools"),
+    ("styles", "Style studio", ":material/format_quote:", "style-studio", "Tools"),
     ("about", "About", ":material/info:", "about", "Help"),
 )
 
@@ -37,13 +37,13 @@ def _renderer(name: str) -> Any:
     Returns:
         The module-level ``render`` callable for that route.
     """
-    from papermint.ui.pages import about, batch, doi_lookup, extract, home
+    from papermint.ui.pages import about, batch, extract, home, style_studio
 
     return {
         "home": home.render,
         "extract": extract.render,
         "batch": batch.render,
-        "doi": doi_lookup.render,
+        "styles": style_studio.render,
         "about": about.render,
     }[name]
 

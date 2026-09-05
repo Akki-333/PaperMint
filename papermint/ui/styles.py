@@ -343,6 +343,8 @@ def _components() -> str:
     border-radius: var(--pm-radius-md);
     padding: var(--pm-space-5);
     transition: border-color var(--pm-motion-fast), background var(--pm-motion-fast);
+    animation: pm-rise var(--pm-motion-enter) both;
+    animation-delay: calc(var(--pm-step, 0) * var(--pm-motion-stagger));
 }
 .pm-card:hover {
     border-color: var(--pm-color-border-strong);
@@ -359,45 +361,90 @@ def _components() -> str:
 .pm-card-head {
     display: flex;
     align-items: flex-start;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: var(--pm-space-4);
+    margin-bottom: var(--pm-space-3);
 }
-.pm-card-title {
+
+/* The coverage meter: the same number the badge carries, read as a length
+   rather than a percentage, so a page of cards can be scanned without being
+   read. */
+.pm-meter {
+    height: 3px;
+    margin-bottom: var(--pm-space-4);
+    border-radius: var(--pm-radius-pill);
+    background: var(--pm-color-surface-sunken);
+    overflow: hidden;
+}
+.pm-meter-fill {
+    display: block;
+    height: 100%;
+    width: var(--pm-meter, 0%);
+    border-radius: inherit;
+    background: var(--pm-band, var(--pm-color-border-strong));
+    animation: pm-meter-grow var(--pm-motion-reveal) both;
+    animation-delay: calc(var(--pm-step, 0) * var(--pm-motion-stagger));
+}
+
+/* Every field is labelled and every label column is the same width, so values
+   line up down the page and a reader compares like with like. */
+.pm-fields { display: grid; gap: var(--pm-space-2); margin: 0; }
+.pm-field {
+    display: grid;
+    grid-template-columns: 84px 1fr;
+    gap: var(--pm-space-4);
+    align-items: baseline;
+}
+.pm-field-key {
+    margin: 0;
+    font-size: var(--pm-text-micro);
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--pm-color-text-faint);
+}
+.pm-field-val {
+    margin: 0;
+    min-width: 0;
+    font-size: var(--pm-text-base);
+    line-height: 1.5;
+    color: var(--pm-color-text-muted);
+    overflow-wrap: anywhere;
+}
+.pm-field-val.is-title {
     font-family: var(--pm-font-text);
     font-size: var(--pm-text-lg);
     font-weight: 600;
     line-height: 1.35;
     letter-spacing: -0.005em;
     color: var(--pm-color-text);
-    margin: 0;
 }
-.pm-card-title.is-unparsed {
+.pm-field-val.is-title.is-unparsed {
     font-family: var(--pm-font-ui);
     font-size: var(--pm-text-base);
     font-weight: 400;
     font-style: italic;
     color: var(--pm-color-text-muted);
 }
-.pm-card-authors {
-    margin-top: var(--pm-space-2);
-    font-size: var(--pm-text-base);
-    color: var(--pm-color-text-muted);
-}
-.pm-card-meta {
-    margin-top: var(--pm-space-1);
+.pm-field-val.is-mono {
+    font-family: var(--pm-font-mono);
     font-size: var(--pm-text-sm);
-    color: var(--pm-color-text-faint);
+    font-variant-numeric: tabular-nums;
 }
-.pm-card-meta em {
+.pm-field-val em {
     font-family: var(--pm-font-text);
     font-style: italic;
-    color: var(--pm-color-text-muted);
+    color: var(--pm-color-text);
+}
+.pm-field-absent {
+    font-size: var(--pm-text-sm);
+    font-style: italic;
+    color: var(--pm-color-text-faint);
 }
 .pm-card-link {
     display: inline-flex;
     align-items: center;
     gap: var(--pm-space-2);
-    margin-top: var(--pm-space-3);
     font-size: var(--pm-text-sm);
     font-family: var(--pm-font-mono);
     color: var(--pm-color-info);
@@ -484,27 +531,132 @@ def _components() -> str:
     color: var(--pm-color-text-faint);
 }
 
-/* --- Stepper ---------------------------------------------------------- */
-.pm-steps { display: flex; flex-wrap: wrap; gap: var(--pm-space-2); align-items: center; }
-.pm-step {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--pm-space-2);
-    padding: var(--pm-space-2) var(--pm-space-3);
-    border-radius: var(--pm-radius-pill);
-    font-size: var(--pm-text-xs);
-    font-weight: 500;
+/* --- Processing flow -------------------------------------------------- */
+/* The rail is a plain progress bar rather than a set of connectors drawn
+   between the nodes: connectors have to be positioned against node centres,
+   which drift with the label width, and a bar that is always exactly as long
+   as the row cannot come apart. */
+.pm-flow {
+    padding: var(--pm-space-5);
     border: 1px solid var(--pm-color-border);
-    color: var(--pm-color-text-faint);
+    border-radius: var(--pm-radius-lg);
     background: var(--pm-color-surface);
 }
-.pm-step.is-active {
+.pm-flow.is-live { animation: pm-rise var(--pm-motion-enter) both; }
+
+.pm-flow-rail {
+    position: relative;
+    height: 3px;
+    margin-bottom: var(--pm-space-5);
+    border-radius: var(--pm-radius-pill);
+    background: var(--pm-color-surface-sunken);
+    overflow: hidden;
+}
+.pm-flow-fill {
+    display: block;
+    height: 100%;
+    width: var(--pm-to, 0%);
+    border-radius: inherit;
+    background: linear-gradient(
+        90deg,
+        var(--pm-color-accent-deep),
+        var(--pm-color-accent-bright)
+    );
+}
+/* Streamlit remounts the whole node on every placeholder write, so a
+   transition would never play. The fill animates from where the previous
+   stage left it, which the stepper remembers, to where this one reaches. */
+.pm-flow.is-live .pm-flow-fill { animation: pm-flow-advance var(--pm-motion-reveal) both; }
+.pm-flow.is-live .pm-flow-rail::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        90deg,
+        var(--pm-fill-accent-00),
+        var(--pm-fill-accent-24),
+        var(--pm-fill-accent-00)
+    );
+    animation: pm-flow-sweep 1.7s linear infinite;
+}
+
+.pm-flow-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--pm-space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.pm-flow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--pm-space-2);
+    text-align: center;
+}
+.pm-flow.is-live .pm-flow-step {
+    animation: pm-rise var(--pm-motion-enter) both;
+    animation-delay: calc(var(--pm-step, 0) * var(--pm-motion-stagger));
+}
+.pm-flow-node {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid var(--pm-color-border);
+    background: var(--pm-color-surface-sunken);
+    color: var(--pm-color-text-faint);
+    transition: color var(--pm-motion-base), border-color var(--pm-motion-base),
+                background var(--pm-motion-base);
+}
+.pm-flow-name {
+    font-size: var(--pm-text-xs);
+    line-height: 1.35;
+    color: var(--pm-color-text-faint);
+}
+.pm-flow-step.is-done .pm-flow-node {
+    color: var(--pm-color-accent);
     border-color: var(--pm-fill-accent-24);
     background: var(--pm-fill-accent-08);
-    color: var(--pm-color-accent-bright);
 }
-.pm-step.is-done { color: var(--pm-color-text-muted); }
-.pm-step-rule { flex: 1; height: 1px; background: var(--pm-color-border); min-width: 8px; }
+.pm-flow-step.is-done .pm-flow-name { color: var(--pm-color-text-muted); }
+.pm-flow-step.is-active .pm-flow-node {
+    color: var(--pm-color-accent-ink);
+    border-color: var(--pm-color-accent);
+    background: var(--pm-color-accent);
+}
+.pm-flow.is-live .pm-flow-step.is-active .pm-flow-node {
+    animation: pm-flow-pulse 1.8s ease-out infinite;
+}
+.pm-flow-step.is-active .pm-flow-name {
+    color: var(--pm-color-accent-bright);
+    font-weight: 600;
+}
+
+.pm-flow-status {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pm-space-3);
+    margin-top: var(--pm-space-5);
+    padding-top: var(--pm-space-4);
+    border-top: 1px solid var(--pm-color-border);
+    font-size: var(--pm-text-sm);
+    line-height: 1.6;
+    color: var(--pm-color-text-muted);
+}
+.pm-flow-said b { color: var(--pm-color-text); font-weight: 600; }
+.pm-flow-beacon {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: var(--pm-color-accent);
+    animation: pm-flow-beacon 1.3s ease-in-out infinite;
+}
 
 /* --- Summary and source text ------------------------------------------ */
 .pm-prose {
@@ -717,10 +869,126 @@ def _components() -> str:
     line-height: 1.6;
 }
 
+/* --- Style studio ----------------------------------------------------- */
+/* The nine core elements of an MLA entry, and the shorter element lists of
+   the other styles, are the point of the page: a reader who sees the order
+   and the punctuation together stops treating a style as arbitrary. */
+.pm-chain { display: grid; gap: var(--pm-space-2); }
+.pm-chain-item {
+    display: grid;
+    grid-template-columns: 1.6rem 1fr;
+    gap: var(--pm-space-3);
+    padding: var(--pm-space-3) var(--pm-space-4);
+    border: 1px solid var(--pm-color-border);
+    border-left: 2px solid var(--pm-fill-accent-24);
+    border-radius: var(--pm-radius-sm);
+    background: var(--pm-color-surface-sunken);
+    animation: pm-slide var(--pm-motion-enter) both;
+    animation-delay: calc(var(--pm-step, 0) * var(--pm-motion-stagger));
+}
+.pm-chain-num {
+    font-family: var(--pm-font-mono);
+    font-size: var(--pm-text-xs);
+    color: var(--pm-color-accent);
+    padding-top: 2px;
+}
+.pm-chain-name {
+    font-size: var(--pm-text-base);
+    font-weight: 600;
+    color: var(--pm-color-text);
+}
+.pm-chain-rule {
+    margin-top: var(--pm-space-1);
+    font-size: var(--pm-text-sm);
+    line-height: 1.55;
+    color: var(--pm-color-text-muted);
+}
+
+/* A formatted reference list, set the way it is set on paper: reading serif,
+   hanging indent, one entry per block. */
+.pm-reflist { display: grid; gap: var(--pm-space-4); }
+.pm-refline {
+    font-family: var(--pm-font-text);
+    font-size: 1.0625rem;
+    line-height: 1.7;
+    color: var(--pm-color-text);
+    padding-left: var(--pm-space-8);
+    text-indent: calc(var(--pm-space-8) * -1);
+    animation: pm-rise var(--pm-motion-enter) both;
+    animation-delay: calc(var(--pm-step, 0) * var(--pm-motion-stagger));
+}
+.pm-refline em { font-style: italic; }
+.pm-refmark {
+    font-family: var(--pm-font-mono);
+    font-size: var(--pm-text-sm);
+    color: var(--pm-color-accent);
+    margin-right: var(--pm-space-2);
+}
+.pm-refgap {
+    display: block;
+    margin-top: var(--pm-space-1);
+    text-indent: 0;
+    font-family: var(--pm-font-ui);
+    font-size: var(--pm-text-xs);
+    color: var(--pm-color-caution);
+}
+
+/* --- Motion ----------------------------------------------------------- */
+@keyframes pm-rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes pm-slide {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes pm-meter-grow {
+    from { width: 0%; }
+    to { width: var(--pm-meter, 0%); }
+}
+@keyframes pm-flow-advance {
+    from { width: var(--pm-from, 0%); }
+    to { width: var(--pm-to, 0%); }
+}
+@keyframes pm-flow-sweep {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+}
+@keyframes pm-flow-pulse {
+    0% { box-shadow: 0 0 0 0 var(--pm-fill-accent-24); }
+    70% { box-shadow: 0 0 0 10px var(--pm-fill-accent-00); }
+    100% { box-shadow: 0 0 0 0 var(--pm-fill-accent-00); }
+}
+@keyframes pm-flow-beacon {
+    0%, 100% { opacity: 0.35; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* Motion here is explanation, never decoration, so removing it removes
+   nothing a reader needs. */
+@media (prefers-reduced-motion: reduce) {
+    .pm-card,
+    .pm-meter-fill,
+    .pm-flow,
+    .pm-flow-fill,
+    .pm-flow-step,
+    .pm-flow-node,
+    .pm-flow-beacon,
+    .pm-chain-item,
+    .pm-refline {
+        animation: none !important;
+    }
+    .pm-flow.is-live .pm-flow-rail::after { display: none; }
+    .pm-meter-fill { width: var(--pm-meter, 0%); }
+    .pm-flow-fill { width: var(--pm-to, 0%); }
+}
+
 @media (max-width: 640px) {
     .pm-card { grid-template-columns: 1fr; gap: var(--pm-space-2); }
     .pm-card-head { flex-direction: column; gap: var(--pm-space-2); }
     .pm-def { grid-template-columns: 1fr; gap: var(--pm-space-1); }
+    .pm-field { grid-template-columns: 1fr; gap: var(--pm-space-1); }
+    .pm-flow-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--pm-space-4); }
 }
 """
 

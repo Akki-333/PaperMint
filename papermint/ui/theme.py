@@ -48,6 +48,10 @@ COLOR: Final[dict[str, str]] = {
 
 #: Translucent fills, used for chips and hover states.
 ALPHA: Final[dict[str, str]] = {
+    # A fully transparent accent, needed as the resting end of a pulsing ring:
+    # animating to `transparent` fades through grey in some engines, animating
+    # to the same hue at zero alpha does not.
+    "accent-00": "rgba(52, 211, 153, 0)",
     "accent-08": "rgba(52, 211, 153, 0.08)",
     "accent-14": "rgba(52, 211, 153, 0.14)",
     "accent-24": "rgba(52, 211, 153, 0.24)",
@@ -156,9 +160,20 @@ SHADOW: Final[dict[str, str]] = {
 }
 
 #: Shared easing and duration.
+#:
+#: ``fast`` and ``base`` are interface feedback: a hover, a focus ring, a
+#: border warming up. ``enter`` and ``reveal`` are content arriving, and they
+#: use a decelerating curve that overshoots nothing, so a list of citations
+#: settles onto the page rather than sliding in like a carousel. ``stagger`` is
+#: the delay step between neighbouring items in a revealed sequence: below
+#: about 40ms the cascade reads as one flicker, above about 90ms the last item
+#: feels late.
 MOTION: Final[dict[str, str]] = {
     "fast": "120ms cubic-bezier(0.4, 0, 0.2, 1)",
     "base": "200ms cubic-bezier(0.4, 0, 0.2, 1)",
+    "enter": "460ms cubic-bezier(0.16, 1, 0.3, 1)",
+    "reveal": "620ms cubic-bezier(0.16, 1, 0.3, 1)",
+    "stagger": "55ms",
 }
 
 

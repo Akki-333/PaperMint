@@ -32,11 +32,16 @@ from papermint.ui.components.primitives import (
     section_header,
     stat_row,
 )
+from papermint.ui.state import forget, restore, retain
 
 logger = logging.getLogger(__name__)
 
 _SIGNATURE_KEY = "pm_batch_signature"
 _RESULT_KEY = "pm_batch_result"
+
+#: Widget values mirrored across page switches, for the same reason as on the
+#: analyzer page: Streamlit collects the state of any widget it did not draw.
+_STICKY_KEYS = ("pm_batch_reading_mode",)
 
 
 #: The reader's override of the classifier, applied to every file in the batch.
@@ -195,8 +200,30 @@ def _render_files(result: BatchResult) -> None:
             render_citation_list(document.citations, scope=f"batch{position}")
 
 
+def _render_run(result: BatchResult) -> None:
+    """Render one completed batch run.
+
+    Args:
+        result: The aggregated batch result.
+    """
+    _render_summary(result)
+    st.write("")
+    _render_files(result)
+
+    if result.citations:
+        st.divider()
+        render_export_panel(
+            result.citations,
+            key_prefix="batch",
+            default_name="merged_bibliography",
+            title="Merged export",
+        )
+
+
 def render() -> None:
     """Render the batch processing page."""
+    restore(*_STICKY_KEYS)
+
     page_header(
         "Batch processing",
         "Process a whole reading list at once and export one merged "
@@ -207,20 +234,34 @@ def render() -> None:
     )
 
     uploaded_files = render_file_uploader(key="batch_upload", accept_multiple=True)
+    cached: BatchResult | None = st.session_state.get(_RESULT_KEY)
 
     if not uploaded_files:
-        empty_state(
-            "No files selected",
-            "Add several documents above to build a combined bibliography.",
-            icon_name="layers",
+        if cached is None:
+            empty_state(
+                "No files selected",
+                "Add several documents above to build a combined bibliography.",
+                icon_name="layers",
+            )
+            return
+        # The uploader cannot hold its files across a page switch, but the run
+        # itself outlives that, so it is shown rather than discarded.
+        left, right = st.columns([4, 1])
+        left.caption(
+            f"Showing your last run of {cached.file_count} files. "
+            "Add more documents above to start a new one."
         )
+        if right.button("Start over", use_container_width=True, key="pm_batch_reset"):
+            forget(_SIGNATURE_KEY, _RESULT_KEY, *_STICKY_KEYS)
+            st.rerun()
+        _render_run(cached)
+        retain(*_STICKY_KEYS)
         return
 
     with st.expander("Options"):
         reading = st.radio(
             "How to read these documents",
             options=list(_READING_MODES),
-            index=0,
             help=(
                 "Each file is classified on its own merits, so a mixed batch of "
                 "papers, catalogues and prose needs no setting here. Override only "
@@ -235,18 +276,8 @@ def render() -> None:
         PipelineOptions(force_parse=force_parse, force_prose=force_prose),
     )
 
-    _render_summary(result)
-    st.write("")
-    _render_files(result)
-
-    if result.citations:
-        st.divider()
-        render_export_panel(
-            result.citations,
-            key_prefix="batch",
-            default_name="merged_bibliography",
-            title="Merged export",
-        )
+    _render_run(result)
+    retain(*_STICKY_KEYS)
 
 
 __all__ = ["render"]
