@@ -15,8 +15,17 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from papermint.models import Author, Citation, CitationStyle, ConfidenceBand
+from papermint.models import (
+    Author,
+    BatchFileResult,
+    BatchResult,
+    Citation,
+    CitationStyle,
+    ConfidenceBand,
+    ExtractionResult,
+)
 from papermint.pipeline import PipelineStage
+from papermint.ui.components.citation_browser import _matches, _sorted_citations
 from papermint.ui.components.citation_card import (
     _card_markup,
     _parse_author_field,
@@ -28,6 +37,7 @@ from papermint.ui.components.progress import _flow_markup
 from papermint.ui.html import clamp, compact, dot_join, esc
 from papermint.ui.icons import available_icons, icon
 from papermint.ui.navigation import route_names
+from papermint.ui.pages.batch import _outcome
 from papermint.ui.styles import build_stylesheet
 from papermint.ui.theme import COLOR, band_color, css_variables
 
@@ -368,3 +378,142 @@ def test_reference_formatter_docx_export(citation):
     ref_p = doc.paragraphs[-1]
     assert ref_p.paragraph_format.left_indent.inches == 0.5
     assert ref_p.paragraph_format.first_line_indent.inches == -0.5
+
+
+# --- The batch workbench ---------------------------------------------------
+
+#: Drives the batch page alone, as the route tests do.
+_BATCH_SCRIPT = (
+    "from papermint.ui.styles import inject_custom_css\n"
+    "from papermint.ui.navigation import build_navigation\n"
+    "inject_custom_css()\n"
+    "build_navigation(only='batch').run()\n"
+)
+
+
+def _batch_run() -> BatchResult:
+    """Return a three-file run: one read, one without references, one failed."""
+    parsed = Citation(
+        title="Machine learning in citation parsing",
+        authors=[Author(given="J. A.", family="Smith")],
+        year="2020",
+        journal="Journal of Bibliometrics",
+        confidence=0.9,
+        source_file="paper.pdf",
+    )
+    return BatchResult(
+        files=[
+            BatchFileResult(
+                filename="paper.pdf",
+                result=ExtractionResult(
+                    citations=[parsed],
+                    source_filename="paper.pdf",
+                    raw_text="Body text.\nReferences\nSmith, J. A. (2020).",
+                ),
+            ),
+            BatchFileResult(
+                filename="poster.png",
+                result=ExtractionResult(source_filename="poster.png", raw_text="A poster."),
+            ),
+            BatchFileResult(filename="broken.pdf", error="The file could not be opened."),
+        ],
+        duration_ms=1200,
+    )
+
+
+def _batch_harness(**state: object) -> AppTest:
+    """Render the batch page over a cached run, as a returning reader sees it."""
+    harness = AppTest.from_string(_BATCH_SCRIPT, default_timeout=120)
+    harness.session_state["pm_batch_result"] = _batch_run()
+    for key, value in state.items():
+        harness.session_state[key] = value
+    harness.run()
+    assert not harness.exception, [str(e.value) for e in harness.exception]
+    return harness
+
+
+def _doc_heads(harness: AppTest) -> list[str]:
+    """Return the pane headings on screen. There should never be more than one."""
+    return [m.value for m in harness.markdown if '<div class="pm-doc-head">' in m.value]
+
+
+def test_the_batch_run_shows_one_document_at_a_time():
+    # The old page stacked an expander per file and rendered every citation in
+    # all of them at once. One pane replaces the stack.
+    harness = _batch_harness()
+    assert [tab.label for tab in harness.tabs] == ["Documents", "Merged export"]
+    assert not [e for e in harness.expander if "paper.pdf" in e.label]
+
+    heads = _doc_heads(harness)
+    assert len(heads) == 1
+    assert "paper.pdf" in heads[0]
+
+
+def test_choosing_a_document_puts_it_in_the_pane():
+    harness = _batch_harness()
+    harness.button(key="pm_batch_pick_1").click().run()
+
+    assert harness.session_state["pm_batch_file"] == 1
+    heads = _doc_heads(harness)
+    assert len(heads) == 1
+    assert "poster.png" in heads[0]
+
+
+def test_the_merged_export_is_not_below_the_documents():
+    # The complaint that started this: the export sat under every file, so
+    # reaching it meant scrolling past all of them. It now has its own tab,
+    # and each document carries its own export beside its heading.
+    harness = _batch_harness()
+    assert [d.key for d in harness.tabs[1].download_button] == ["batch_btn"]
+    assert [d.key for d in harness.tabs[0].download_button] == ["pm_batch_doc_export_btn"]
+
+
+def test_a_file_that_failed_is_explained_in_its_own_pane():
+    harness = _batch_harness()
+    harness.button(key="pm_batch_pick_2").click().run()
+
+    assert harness.session_state["pm_batch_file"] == 2
+    assert any("could not be opened" in m.value for m in harness.markdown)
+
+
+def test_a_selection_left_over_from_a_longer_run_is_pulled_back_into_range():
+    harness = _batch_harness(pm_batch_file=9)
+    assert harness.session_state["pm_batch_file"] == 0
+    assert "paper.pdf" in _doc_heads(harness)[0]
+
+
+def test_the_switcher_says_how_each_file_turned_out():
+    files = _batch_run().files
+    assert _outcome(files[0])[1] == "1 reference · 90% read"
+    assert _outcome(files[1])[1] == "No bibliography"
+    assert _outcome(files[2])[1:] == ("Could not be read", "critical")
+
+
+def test_a_merged_listing_names_the_file_each_entry_came_from(citation):
+    entry = citation.model_copy(update={"source_file": "thesis.pdf"})
+    assert "thesis.pdf" in _card_markup(entry, 1, show_source=True)
+    # A single document's own list says nothing the reader already knows.
+    assert "thesis.pdf" not in _card_markup(entry, 1)
+
+
+# --- The citation browser --------------------------------------------------
+
+
+def test_the_browser_leaves_document_order_alone_by_default(citation):
+    second = citation.model_copy(update={"title": "A later entry", "year": "1999"})
+    rows = _sorted_citations([citation, second], "Document order")
+    assert [index for index, _ in rows] == [0, 1]
+
+
+def test_the_browser_keeps_each_entrys_place_when_it_reorders(citation):
+    second = citation.model_copy(update={"title": "A later entry", "year": "1999"})
+    rows = _sorted_citations([citation, second], "Year, oldest first")
+    # The pair's first member is the position in the unsorted list, which is
+    # what an edit has to be written back to.
+    assert [index for index, _ in rows] == [1, 0]
+
+
+def test_the_browser_finds_an_entry_by_the_file_it_came_from(citation):
+    entry = citation.model_copy(update={"source_file": "ERIC_ED060699.pdf"})
+    assert _matches(entry, "eric_ed060699")
+    assert not _matches(entry, "somewhere else")

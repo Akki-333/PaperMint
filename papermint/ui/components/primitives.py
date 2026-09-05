@@ -118,6 +118,46 @@ def stat_row(stats: list[Stat]) -> None:
     render(f'<div class="pm-stats">{"".join(tiles)}</div>')
 
 
+def document_header(title: str, chips: list[tuple[str, str]], *, note: str = "") -> None:
+    """Render the heading strip for one named document.
+
+    Used where a page shows one record out of several — a file chosen from a
+    batch — and the reader needs to know which one they are looking at without
+    scrolling back to a list.
+
+    Args:
+        title: The document's name, shown in full.
+        chips: ``(icon_name, label)`` pairs describing how it was read.
+        note: Optional supporting line beneath the chips.
+    """
+    parts = [f'<div class="pm-doc-head"><div class="pm-doc-name">{esc(title)}</div>']
+    if chips:
+        rendered = "".join(
+            f'<span class="pm-chip">{icon(name, size=12) if name else ""}{esc(label)}</span>'
+            for name, label in chips
+        )
+        parts.append(f'<div class="pm-chip-row">{rendered}</div>')
+    if note:
+        parts.append(f'<div class="pm-doc-note">{esc(note)}</div>')
+    parts.append("</div>")
+    render("".join(parts))
+
+
+def micro_note(text: str, *, tone: NoticeTone = "neutral") -> None:
+    """Render a single tinted line of status.
+
+    This is the smallest thing the design system says: one line under a
+    compact list entry, giving its outcome without costing a row of its own.
+
+    Args:
+        text: The line to show.
+        tone: The visual tone, which sets the text colour.
+    """
+    tint, _fill = _TONE_STYLE.get(tone, _TONE_STYLE["neutral"])
+    colour = COLOR["text-faint"] if tone == "neutral" else tint
+    render(f'<div class="pm-micro" style="--pm-micro-tint:{colour};">{esc(text)}</div>')
+
+
 def chip_row(chips: list[tuple[str, str]], *, accent_first: bool = False) -> None:
     """Render a row of small labelled chips.
 
@@ -266,7 +306,9 @@ __all__ = [
     "Stat",
     "chip_row",
     "definition_list",
+    "document_header",
     "empty_state",
+    "micro_note",
     "notice",
     "page_header",
     "prose",

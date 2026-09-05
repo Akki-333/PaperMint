@@ -91,7 +91,7 @@ def _venue_row(citation: Citation) -> tuple[str, str] | None:
     return None
 
 
-def _field_rows(citation: Citation) -> str:
+def _field_rows(citation: Citation, *, show_source: bool = False) -> str:
     """Build the aligned field grid for one citation.
 
     Title, authors and year always occupy a row, found or not: they are the
@@ -101,6 +101,8 @@ def _field_rows(citation: Citation) -> str:
 
     Args:
         citation: The citation being rendered.
+        show_source: Add a provenance row naming the file the entry came from.
+            A merged batch library needs it; a single document does not.
 
     Returns:
         The grid's HTML.
@@ -134,16 +136,21 @@ def _field_rows(citation: Citation) -> str:
         rows.append(_field("DOI" if citation.doi else "Link", link))
 
     rows.append(_field("Type", esc(citation.entry_type.label)))
+    if show_source and citation.source_file:
+        rows.append(_field("Source", esc(citation.source_file), value_class="is-mono is-source"))
     return f'<dl class="pm-fields">{"".join(rows)}</dl>'
 
 
-def _card_markup(citation: Citation, index: int, *, reveal: int = 0) -> str:
+def _card_markup(
+    citation: Citation, index: int, *, reveal: int = 0, show_source: bool = False
+) -> str:
     """Build the static markup for one citation.
 
     Args:
         citation: The citation to render.
         index: The 1-based position shown in the gutter.
         reveal: This card's place in the entrance cascade.
+        show_source: Add the provenance row. See :func:`_field_rows`.
 
     Returns:
         The card's HTML.
@@ -177,7 +184,7 @@ def _card_markup(citation: Citation, index: int, *, reveal: int = 0) -> str:
         "<div>"
         f'<div class="pm-card-head"><div class="pm-chip-row">{"".join(badges)}</div></div>'
         '<div class="pm-meter" role="presentation"><span class="pm-meter-fill"></span></div>'
-        f"{_field_rows(citation)}{missing_html}"
+        f"{_field_rows(citation, show_source=show_source)}{missing_html}"
         "</div>"
         "</div>"
     )
@@ -266,6 +273,7 @@ def render_citation_card(
     editable: bool = False,
     uid: str | None = None,
     reveal: int = 0,
+    show_source: bool = False,
 ) -> Citation | None:
     """Render a single citation as a card.
 
@@ -277,19 +285,21 @@ def render_citation_card(
         editable: Show the inline editor and BibTeX actions.
         uid: Stable identifier for widget keys; defaults to the index.
         reveal: This card's place in the entrance cascade.
+        show_source: Name the file this entry came from. Set on merged
+            listings, where entries from several documents sit side by side.
 
     Returns:
         The updated citation when the reader saved an edit, otherwise None.
     """
     if not editable:
-        render(_card_markup(citation, index, reveal=reveal))
+        render(_card_markup(citation, index, reveal=reveal, show_source=show_source))
         return None
 
     key = f"{scope}-{uid if uid is not None else index}"
     result: Citation | None = None
 
     with st.container(key=f"pmcard-{key}"):
-        render(_card_markup(citation, index, reveal=reveal))
+        render(_card_markup(citation, index, reveal=reveal, show_source=show_source))
 
         actions, spacer = st.columns([3, 5])
         with actions:
@@ -311,6 +321,7 @@ def render_citation_list(
     editable: bool = False,
     start_index: int = 1,
     uids: list[str] | None = None,
+    show_source: bool = False,
 ) -> tuple[int, Citation] | None:
     """Render a list of citation cards.
 
@@ -321,6 +332,8 @@ def render_citation_list(
         start_index: The number shown on the first card.
         uids: Stable per-citation identifiers, used for widget keys. Defaults
             to the display position.
+        show_source: Name each entry's source file. See
+            :func:`render_citation_card`.
 
     Returns:
         A ``(list position, updated citation)`` pair when a card was edited,
@@ -336,6 +349,7 @@ def render_citation_list(
             editable=editable,
             uid=uid,
             reveal=offset,
+            show_source=show_source,
         )
         if updated is not None:
             edit = (offset, updated)

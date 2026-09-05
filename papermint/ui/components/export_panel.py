@@ -149,6 +149,55 @@ def _serialise(fmt: ExportFormat, citations: list[Citation]) -> Any:
         ) from exc
 
 
+def render_compact_export(
+    citations: list[Citation],
+    *,
+    key_prefix: str,
+    default_name: str,
+) -> None:
+    """Render a two-control export for a narrow container.
+
+    The full panel needs the page's width: it lays its format picker and file
+    name field out side by side and offers an inline preview behind an
+    expander, which Streamlit refuses to nest inside another expander. This
+    variant stacks a picker and a download button, so it fits inside a popover
+    beside a document's heading and puts that document's own references one
+    click away from the top of the pane.
+
+    Args:
+        citations: The citations to export.
+        key_prefix: Prefix for widget keys, so several exports can coexist.
+        default_name: The filename stem, taken from the source document.
+    """
+    if not citations:
+        return
+
+    st.caption(f"{len(citations)} references from this document.")
+    label = st.selectbox(
+        "Format",
+        options=[fmt.label for fmt in EXPORT_FORMATS],
+        key=f"{key_prefix}_format",
+    )
+    fmt = _BY_LABEL[label]
+    st.caption(fmt.note)
+
+    try:
+        payload = _serialise(fmt, citations)
+    except ExportError as err:
+        st.error(str(err))
+        return
+
+    st.download_button(
+        label=f"Download {fmt.label}",
+        data=payload,
+        file_name=f"{safe_filename(default_name)}{fmt.extension}",
+        mime=fmt.mime,
+        key=f"{key_prefix}_btn",
+        use_container_width=True,
+        type="primary",
+    )
+
+
 def render_export_panel(
     citations: list[Citation],
     key_prefix: str = "export",
@@ -216,4 +265,10 @@ def render_export_panel(
                 st.caption("Preview truncated. The download contains every entry.")
 
 
-__all__ = ["EXPORT_FORMATS", "ExportFormat", "render_export_panel", "safe_filename"]
+__all__ = [
+    "EXPORT_FORMATS",
+    "ExportFormat",
+    "render_compact_export",
+    "render_export_panel",
+    "safe_filename",
+]

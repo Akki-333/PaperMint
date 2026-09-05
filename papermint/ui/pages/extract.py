@@ -17,11 +17,11 @@ from typing import Any
 
 import streamlit as st
 
-from papermint.config import CITATIONS_PER_PAGE, RAW_TEXT_PREVIEW_LINES
+from papermint.config import RAW_TEXT_PREVIEW_LINES
 from papermint.errors import PaperMintError
 from papermint.models import Citation, DocumentKind, ExtractionResult
 from papermint.pipeline import DocumentInput, PipelineOptions, PipelineService, PipelineStage
-from papermint.ui.components.citation_card import render_citation_list
+from papermint.ui.components.citation_browser import browser_keys, render_citation_browser
 from papermint.ui.components.export_panel import render_export_panel, safe_filename
 from papermint.ui.components.file_uploader import (
     read_upload,
@@ -41,7 +41,7 @@ from papermint.ui.components.primitives import (
     stat_row,
 )
 from papermint.ui.components.progress import PipelineStepper, render_stepper
-from papermint.ui.state import forget, restore, restore_within, retain
+from papermint.ui.state import forget, restore, retain
 
 logger = logging.getLogger(__name__)
 
@@ -49,24 +49,22 @@ _SIGNATURE_KEY = "pm_extract_signature"
 _RESULT_KEY = "pm_extract_result"
 _CITATIONS_KEY = "pm_extract_citations"
 
+#: Widget namespace for this page's citation browser. The prefix is unchanged
+#: from when the controls lived here, so a reader's remembered search text and
+#: page number survive the move to the shared component.
+_BROWSER_PREFIX = "pm_cit"
+
 #: Widget values mirrored across page switches. Streamlit collects the state of
 #: any widget it does not draw on a given run, so without this a glance at the
 #: About page emptied the search box, the sort order and the reading mode.
-_STICKY_KEYS = (
-    "pm_summary_len",
-    "pm_reading_mode",
-    "pm_cit_search",
-    "pm_cit_sort",
-    "pm_cit_review",
-    "pm_cit_page",
-)
+_STICKY_KEYS = ("pm_summary_len", "pm_reading_mode", *browser_keys(_BROWSER_PREFIX))
 
 #: Starting values, seeded into session state rather than passed to the widgets
 #: as ``value=`` or ``index=``. Supplying both a literal default and a
-#: session-state value makes Streamlit warn that the widget was set twice.
+#: session-state value makes Streamlit warn that the widget was set twice. The
+#: browser seeds its own ordering, so only the summary slider is listed here.
 _DEFAULTS: dict[str, object] = {
     "pm_summary_len": 5,
-    "pm_cit_sort": "Document order",
 }
 
 #: The reader's override of the classifier, mapped to
@@ -80,32 +78,25 @@ _READING_MODES: dict[str, tuple[bool, bool]] = {
     "There are no references": (False, True),
 }
 
-_SORT_OPTIONS = (
-    "Document order",
-    "Confidence, lowest first",
-    "Confidence, highest first",
-    "Year, newest first",
-    "Year, oldest first",
-    "Title, A to Z",
-)
-
 
 # ---------------------------------------------------------------------------
 # Processing
 # ---------------------------------------------------------------------------
 
 
-def _run_pipeline(uploaded_file: Any, options: PipelineOptions) -> ExtractionResult | None:
+def _run_pipeline(
+    uploaded_file: Any, options: PipelineOptions, stepper: PipelineStepper
+) -> ExtractionResult | None:
     """Process the upload, reporting progress and errors in the page.
 
     Args:
         uploaded_file: The Streamlit upload object.
         options: The reader's processing options.
+        stepper: The live stage indicator.
 
     Returns:
         The result, or None when processing failed.
     """
-    stepper = PipelineStepper()
     document = DocumentInput(
         filename=uploaded_file.name,
         data=read_upload(uploaded_file),
@@ -284,118 +275,25 @@ def _render_headline_stats(result: ExtractionResult, citations: list[Citation]) 
     )
 
 
-def _sorted_citations(citations: list[Citation], order: str) -> list[tuple[int, Citation]]:
-    """Apply a sort order while preserving each entry's original position.
-
-    Args:
-        citations: The citations in document order.
-        order: One of :data:`_SORT_OPTIONS`.
-
-    Returns:
-        ``(original index, citation)`` pairs in display order.
-    """
-    indexed = list(enumerate(citations))
-    if order == "Confidence, lowest first":
-        return sorted(indexed, key=lambda pair: pair[1].confidence)
-    if order == "Confidence, highest first":
-        return sorted(indexed, key=lambda pair: pair[1].confidence, reverse=True)
-    if order == "Year, newest first":
-        return sorted(indexed, key=lambda pair: pair[1].year or "0000", reverse=True)
-    if order == "Year, oldest first":
-        return sorted(indexed, key=lambda pair: pair[1].year or "9999")
-    if order == "Title, A to Z":
-        return sorted(indexed, key=lambda pair: pair[1].display_title.lower())
-    return indexed
-
-
-def _matches(citation: Citation, query: str) -> bool:
-    """Test a citation against a free-text query.
-
-    Args:
-        citation: The citation to test.
-        query: The lowercase search string.
-
-    Returns:
-        True when any displayed field contains the query.
-    """
-    haystack = (
-        f"{citation.display_title} {citation.author_string} {citation.year} "
-        f"{citation.venue} {citation.doi}"
-    ).lower()
-    return query in haystack
-
-
 def _render_citations_tab(citations: list[Citation]) -> None:
     """Render the searchable, sortable, editable citation list.
+
+    The controls themselves live in
+    :func:`~papermint.ui.components.citation_browser.render_citation_browser`,
+    because the batch page needs exactly the same four and a second copy of
+    them would drift.
 
     Args:
         citations: The current citation list from session state.
     """
-    if not citations:
-        empty_state(
-            "No references to show",
-            "This document produced no bibliographic entries.",
-        )
-        return
-
-    search_col, sort_col, filter_col = st.columns([3, 2, 2])
-    query = search_col.text_input(
-        "Search",
-        placeholder="Filter by title, author, year, venue or DOI",
-        key="pm_cit_search",
-        label_visibility="collapsed",
-    )
-    order = sort_col.selectbox(
-        "Sort", _SORT_OPTIONS, key="pm_cit_sort", label_visibility="collapsed"
-    )
-    review_only = filter_col.toggle(
-        "Needs review", key="pm_cit_review", help="Show only incomplete entries."
-    )
-
-    rows = _sorted_citations(citations, order)
-    if query:
-        needle = query.lower()
-        rows = [pair for pair in rows if _matches(pair[1], needle)]
-    if review_only:
-        rows = [pair for pair in rows if pair[1].needs_review]
-
-    if not rows:
-        empty_state(
-            "Nothing matches those filters",
-            "Clear the search box or turn off the review filter to see every entry.",
-            icon_name="filter",
-        )
-        return
-
-    total_pages = max(1, -(-len(rows) // CITATIONS_PER_PAGE))
-    page = 1
-    if total_pages > 1:
-        # Filtering can shrink the list under the reader's feet. A remembered
-        # page beyond the new last one has to be pulled back into range before
-        # the slider sees it, whether it came from this session or from the
-        # shadow copy that survived a page switch.
-        current = st.session_state.get("pm_cit_page")
-        if isinstance(current, int) and current > total_pages:
-            st.session_state["pm_cit_page"] = total_pages
-        restore_within("pm_cit_page", 1, total_pages)
-        page = st.slider("Page", 1, total_pages, key="pm_cit_page", help=f"{len(rows)} entries")
-    window = rows[(page - 1) * CITATIONS_PER_PAGE : page * CITATIONS_PER_PAGE]
-
-    st.caption(
-        f"Showing {len(window)} of {len(citations)} references"
-        + (f" · page {page} of {total_pages}" if total_pages > 1 else "")
-    )
-
-    edit = render_citation_list(
-        [citation for _, citation in window],
+    edit = render_citation_browser(
+        citations,
         scope="extract",
+        key_prefix=_BROWSER_PREFIX,
         editable=True,
-        start_index=(page - 1) * CITATIONS_PER_PAGE + 1,
-        uids=[str(position) for position, _ in window],
     )
     if edit is not None:
-        offset, updated = edit
-        original_index = window[offset][0]
+        original_index, updated = edit
         st.session_state[_CITATIONS_KEY][original_index] = updated
         st.rerun()
 

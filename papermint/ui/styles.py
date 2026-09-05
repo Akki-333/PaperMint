@@ -953,6 +953,84 @@ def _components() -> str:
     color: var(--pm-color-caution);
 }
 
+/* --- Batch workbench -------------------------------------------------- */
+
+/* The pane's heading: which file out of the run is on screen. The name wraps
+   rather than truncating, because a set of exports from one repository can
+   differ only in their last few characters. */
+.pm-doc-head {
+    display: grid;
+    gap: var(--pm-space-3);
+    padding-bottom: var(--pm-space-2);
+}
+.pm-doc-name {
+    font-family: var(--pm-font-text);
+    font-size: var(--pm-text-xl);
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    color: var(--pm-color-text);
+    overflow-wrap: anywhere;
+}
+.pm-doc-note {
+    font-size: var(--pm-text-sm);
+    color: var(--pm-color-text-muted);
+}
+
+.pm-micro {
+    font-size: var(--pm-text-xs);
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    color: var(--pm-micro-tint, var(--pm-color-text-faint));
+}
+
+/* The switcher itself. Streamlit's own gap between stacked elements is a
+   whole rem, which reads as a list of unrelated buttons rather than one
+   control, so the rail and each entry set their own. */
+[data-testid="stVerticalBlock"][class*="st-key-pmrail"] { gap: var(--pm-space-1); }
+
+/* One entry. It is a keyed container because Streamlit gives a page no way to
+   style one button differently from its siblings; the key carries the
+   selected state and the stylesheet reads it off the st-key- class. */
+[data-testid="stVerticalBlock"][class*="st-key-pmfile-"] {
+    gap: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0 var(--pm-radius-sm) var(--pm-radius-sm) 0;
+    padding: var(--pm-space-2) var(--pm-space-1);
+    transition: background var(--pm-motion-fast), border-color var(--pm-motion-fast);
+}
+[data-testid="stVerticalBlock"][class*="st-key-pmfile-"]:hover {
+    background: var(--pm-fill-accent-08);
+}
+[class*="st-key-pmfile-"] .stButton button {
+    justify-content: flex-start;
+    text-align: left;
+    background: transparent;
+    border-color: transparent;
+    padding: 0 var(--pm-space-2);
+    font-size: var(--pm-text-sm);
+    color: var(--pm-color-text-muted);
+}
+[class*="st-key-pmfile-"] .stButton button:hover {
+    background: transparent;
+    border-color: transparent;
+    color: var(--pm-color-accent-bright);
+}
+[class*="st-key-pmfile-"] .pm-micro { padding-left: var(--pm-space-8); }
+
+[data-testid="stVerticalBlock"][class*="st-key-pmfile-on-"] {
+    background: var(--pm-color-surface);
+    border-left-color: var(--pm-color-accent);
+}
+[class*="st-key-pmfile-on-"] .stButton button {
+    color: var(--pm-color-text);
+    font-weight: 600;
+}
+
+/* Provenance on a merged listing is reference material, not part of the
+   entry's identity, so it is set quieter than the fields above it. */
+.pm-field-val.is-source { color: var(--pm-color-text-faint); }
+
 /* --- Motion ----------------------------------------------------------- */
 @keyframes pm-rise {
     from { opacity: 0; transform: translateY(10px); }
